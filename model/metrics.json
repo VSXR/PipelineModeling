@@ -1,0 +1,7 @@
+{
+  "accuracy": 0.98,
+  "f1": 0.97037,
+  "precision": 0.97037,
+  "recall": 0.97037,
+  "n_samples": 400
+}

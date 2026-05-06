@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class InferenceRequest(BaseModel):
@@ -11,6 +11,8 @@ class InferenceRequest(BaseModel):
 
 
 class InferenceResponse(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     prediction: int
     probability: List[float]
     model_version: str
@@ -29,6 +31,8 @@ class TrainingRequest(BaseModel):
 
 
 class TrainingResponse(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     status: str
     samples_trained: int
     model_version: str
@@ -45,5 +49,7 @@ class VersionSwitchResponse(BaseModel):
 
 
 class VersionCurrentResponse(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     version: str
     model_loaded: bool

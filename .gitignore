@@ -12,6 +12,7 @@ build/
 # Env
 .env
 *.env.local
+.venv/
 
 # Model weights — tracked by DVC, not Git
 model/weights/

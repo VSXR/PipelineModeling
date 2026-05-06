@@ -48,7 +48,7 @@
       },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "datasource": { "type": "prometheus", "uid": "prometheus-pipeline" },
           "expr": "sum(rate(pipeline_inference_requests_total[1m]))",
           "legendFormat": "rps",
           "refId": "A"
@@ -86,7 +86,7 @@
       },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "datasource": { "type": "prometheus", "uid": "prometheus-pipeline" },
           "expr": "sum(rate(pipeline_inference_requests_total{status=\"error\"}[1m])) / sum(rate(pipeline_inference_requests_total[1m]))",
           "legendFormat": "error %",
           "refId": "A"
@@ -118,7 +118,7 @@
       },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "datasource": { "type": "prometheus", "uid": "prometheus-pipeline" },
           "expr": "pipeline_model_loaded",
           "legendFormat": "status",
           "refId": "A"
@@ -149,7 +149,7 @@
       },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "datasource": { "type": "prometheus", "uid": "prometheus-pipeline" },
           "expr": "pipeline_model_version_switches_total",
           "legendFormat": "switches",
           "refId": "A"
@@ -175,19 +175,19 @@
       },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "datasource": { "type": "prometheus", "uid": "prometheus-pipeline" },
           "expr": "histogram_quantile(0.50, sum(rate(pipeline_inference_latency_seconds_bucket[2m])) by (le))",
           "legendFormat": "p50",
           "refId": "A"
         },
         {
-          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "datasource": { "type": "prometheus", "uid": "prometheus-pipeline" },
           "expr": "histogram_quantile(0.95, sum(rate(pipeline_inference_latency_seconds_bucket[2m])) by (le))",
           "legendFormat": "p95",
           "refId": "B"
         },
         {
-          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "datasource": { "type": "prometheus", "uid": "prometheus-pipeline" },
           "expr": "histogram_quantile(0.99, sum(rate(pipeline_inference_latency_seconds_bucket[2m])) by (le))",
           "legendFormat": "p99",
           "refId": "C"
@@ -213,7 +213,7 @@
       },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "datasource": { "type": "prometheus", "uid": "prometheus-pipeline" },
           "expr": "sum by (status) (rate(pipeline_inference_requests_total[1m]))",
           "legendFormat": "{{status}}",
           "refId": "A"
@@ -246,7 +246,7 @@
       },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "datasource": { "type": "prometheus", "uid": "prometheus-pipeline" },
           "expr": "sum by (status) (rate(pipeline_training_requests_total[2m])) * 60",
           "legendFormat": "{{status}}",
           "refId": "A"
@@ -272,7 +272,7 @@
       },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "datasource": { "type": "prometheus", "uid": "prometheus-pipeline" },
           "expr": "rate(pipeline_training_samples_total[2m]) * 60",
           "legendFormat": "samples/min",
           "refId": "A"
@@ -314,7 +314,7 @@
       },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "datasource": { "type": "prometheus", "uid": "prometheus-pipeline" },
           "expr": "pipeline_data_drift_score",
           "legendFormat": "feature={{feature}}",
           "refId": "A"
@@ -347,7 +347,7 @@
       },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "datasource": { "type": "prometheus", "uid": "prometheus-pipeline" },
           "expr": "http_requests_inprogress",
           "legendFormat": "in-flight",
           "refId": "A"
@@ -374,7 +374,7 @@
       },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "datasource": { "type": "prometheus", "uid": "prometheus-pipeline" },
           "expr": "histogram_quantile(0.99, sum(rate(pipeline_model_load_duration_seconds_bucket[10m])) by (le))",
           "legendFormat": "p99 load time",
           "refId": "A"

@@ -1,0 +1,6 @@
+services:
+  prometheus:
+    volumes:
+      - ./monitoring/prometheus/prometheus-local.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
