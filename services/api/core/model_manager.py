@@ -42,21 +42,22 @@ class ModelManager:
             self._version: str = "unloaded"
             self._initialised = True
 
+    async def _load_weights(self, model_path: Optional[str] = None) -> None:
+        path = Path(model_path or settings.model_path)
+        loop = asyncio.get_running_loop()
+        if path.exists():
+            self._model = await loop.run_in_executor(
+                None, joblib.load, str(path)
+            )
+        else:
+            self._model = SGDClassifier(loss="log_loss", random_state=42)
+        self._version = datetime.now(timezone.utc).isoformat()
+        MODEL_LOADED.set(1)
+
     async def load(self, model_path: Optional[str] = None) -> None:
         self._init_locks()
-        path = Path(model_path or settings.model_path)
-
         async with self._swap_lock:
-            loop = asyncio.get_running_loop()
-            if path.exists():
-                self._model = await loop.run_in_executor(
-                    None, joblib.load, str(path)
-                )
-            else:
-                self._model = SGDClassifier(loss="log_loss", random_state=42)
-
-            self._version = datetime.now(timezone.utc).isoformat()
-            MODEL_LOADED.set(1)
+            await self._load_weights(model_path)
 
     async def predict(self, features: list) -> dict:
         self._init_locks()
@@ -100,12 +101,12 @@ class ModelManager:
     async def switch_version(self, git_ref: str) -> str:
         self._init_locks()
         previous = self._version
-        MODEL_LOADED.set(0)
 
         async with self._swap_lock:
+            MODEL_LOADED.set(0)
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, self._run_dvc_pull, git_ref)
-            await self.load()
+            await self._load_weights()
 
         return previous
 
@@ -114,6 +115,15 @@ class ModelManager:
             ["git", "checkout", git_ref, "--", ".dvc"],
             cwd=settings.git_repo_path,
             check=True,
+            capture_output=True,
+            text=True,
+        )
+        # dvc.lock maps pipeline stage outputs to content hashes.
+        # Without it at the target ref, dvc pull cannot resolve the right artifact.
+        subprocess.run(
+            ["git", "checkout", git_ref, "--", "dvc.lock"],
+            cwd=settings.git_repo_path,
+            check=False,  # tolerate refs that predate dvc.lock
             capture_output=True,
             text=True,
         )

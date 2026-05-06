@@ -1,0 +1,42 @@
+groups:
+  - name: pipeline_alerts
+    interval: 30s
+    rules:
+
+      - alert: ModelNotLoaded
+        expr: pipeline_model_loaded == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Model is not loaded"
+          description: "pipeline_model_loaded has been 0 for more than 1 minute."
+
+      - alert: HighInferenceErrorRate
+        expr: |
+          sum(rate(pipeline_inference_requests_total{status="error"}[5m]))
+          / sum(rate(pipeline_inference_requests_total[5m])) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High inference error rate (> 5%)"
+
+      - alert: HighInferenceLatencyP99
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(pipeline_inference_latency_seconds_bucket[5m])) by (le)
+          ) > 0.5
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p99 inference latency > 500 ms"
+
+      - alert: DataDriftDetected
+        expr: pipeline_data_drift_score > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Data drift score > 0.5 on feature {{ $labels.feature }}"

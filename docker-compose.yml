@@ -7,25 +7,26 @@ networks:
 volumes:
   model_weights:
   dvc_cache:
-  dvc_remote:
   prometheus_data:
   grafana_data:
 
 services:
   api:
     build:
-      context: ./services/api
+      context: .
+      dockerfile: services/api/Dockerfile
       target: runtime
     container_name: pipeline_api
     env_file: .env
     environment:
       MODEL_PATH: /app/model/weights/model.pkl
       GIT_REPO_PATH: /app
-      DVC_REMOTE_PATH: /dvc-remote
+      DVC_REMOTE_PATH: /app/dvc-remote
     volumes:
       - model_weights:/app/model/weights
       - dvc_cache:/app/.dvc/cache
-      - dvc_remote:/dvc-remote
+      - ./dvc-remote:/app/dvc-remote
+      - ./.git:/app/.git:ro
     ports:
       - "8000:8000"
     networks:
@@ -63,6 +64,7 @@ services:
     container_name: pipeline_frontend
     environment:
       API_URL: http://api:8000
+      GRAFANA_URL: http://localhost:3000
     ports:
       - "8501:8501"
     networks:
@@ -82,6 +84,7 @@ services:
       - "--web.enable-lifecycle"
     volumes:
       - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus_data:/prometheus
     ports:
       - "9090:9090"

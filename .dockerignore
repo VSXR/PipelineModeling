@@ -1,0 +1,41 @@
+# Git history is bind-mounted at runtime — exclude from build context
+.git/
+
+# DVC remote and cache are mounted as volumes at runtime
+dvc-remote/
+.dvc/cache/
+.dvc/tmp/
+
+# Model artifacts — served via Docker volume, not baked into image
+model/weights/model.pkl
+model/plots/
+model/metrics.json
+
+# Services not part of the API build
+services/seeder/
+services/frontend/
+services/wrapper/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# Secrets
+.env
+*.env.local
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
