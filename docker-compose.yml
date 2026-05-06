@@ -1,0 +1,109 @@
+version: "3.9"
+
+networks:
+  pipeline_net:
+    driver: bridge
+
+volumes:
+  model_weights:
+  dvc_cache:
+  dvc_remote:
+  prometheus_data:
+  grafana_data:
+
+services:
+  api:
+    build:
+      context: ./services/api
+      target: runtime
+    container_name: pipeline_api
+    env_file: .env
+    environment:
+      MODEL_PATH: /app/model/weights/model.pkl
+      GIT_REPO_PATH: /app
+      DVC_REMOTE_PATH: /dvc-remote
+    volumes:
+      - model_weights:/app/model/weights
+      - dvc_cache:/app/.dvc/cache
+      - dvc_remote:/dvc-remote
+    ports:
+      - "8000:8000"
+    networks:
+      - pipeline_net
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  seeder:
+    build:
+      context: ./services/seeder
+    container_name: pipeline_seeder
+    environment:
+      API_URL: http://api:8000
+      REQUESTS_PER_SECOND: "20"
+      TRAINING_INTERVAL_S: "30"
+      TRAINING_BATCH_SIZE: "50"
+      DRIFT_ONSET_AFTER_S: "120"
+      DRIFT_MAGNITUDE: "2.0"
+      INFERENCE_CONCURRENCY: "10"
+    networks:
+      - pipeline_net
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./services/frontend
+    container_name: pipeline_frontend
+    environment:
+      API_URL: http://api:8000
+    ports:
+      - "8501:8501"
+    networks:
+      - pipeline_net
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: pipeline_prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=7d"
+      - "--web.enable-lifecycle"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - pipeline_net
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: pipeline_grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/provisioning/dashboards/pipeline.json
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3000:3000"
+    networks:
+      - pipeline_net
+    depends_on:
+      - prometheus
+    restart: unless-stopped
