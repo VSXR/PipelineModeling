@@ -1,7 +1,7 @@
 {
-  "accuracy": 0.99,
-  "f1": 0.98496,
-  "precision": 0.97398,
-  "recall": 0.9962,
-  "n_samples": 800
+  "accuracy": 0.99167,
+  "f1": 0.98695,
+  "precision": 0.99474,
+  "recall": 0.97927,
+  "n_samples": 1200
 }
