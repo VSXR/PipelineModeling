@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     PipelineModeling — CLI de gestion del workspace.
@@ -114,7 +114,7 @@ function Invoke-Setup {
     foreach ($req in $reqs) {
         $path = Join-Path $ROOT $req
         if (Test-Path $path) {
-            & $PIP install -r $path -q
+            & $PIP install -r $path -q 2>&1 | Where-Object { $_ -notmatch "does not provide the extra 'boto3'" } | Out-Null
             Write-Ok $req
         }
     }
@@ -284,6 +284,14 @@ function Invoke-Stop {
     $ErrorActionPreference = 'SilentlyContinue'
     Write-Header "PipelineModeling — stop"
 
+    # Ensure any process listening on project ports is stopped (idempotent)
+    $ports = 3000,8000,8501,9000,9001,9090
+    foreach ($port in $ports) {
+        Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue |
+            Select-Object -ExpandProperty OwningProcess -Unique |
+            ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
+    }
+
     if (Test-Path $PIDSFILE) {
         $saved = Get-Content $PIDSFILE | ConvertFrom-Json
         foreach ($svc in @('API', 'Frontend', 'Seeder')) {
@@ -299,7 +307,7 @@ function Invoke-Stop {
 
     foreach ($exe in @('powershell', 'pwsh')) {
         Get-Process $exe -ErrorAction SilentlyContinue |
-            Where-Object { $_.MainWindowTitle -match 'PipelineModeling' } |
+            Where-Object { $_.MainWindowTitle -match 'PipelineModeling' -and $_.Id -ne $PID } |
             ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
     }
 
@@ -344,7 +352,7 @@ function Invoke-Status {
     Write-Host ""
     if (Test-ApiHealth) {
         try {
-            $health = Invoke-RestMethod 'http://localhost:8000/health' -TimeoutSec 3
+            $health = Invoke-RestMethod 'http://127.0.0.1:8000/health' -TimeoutSec 3
             Write-Host "  API Health    [OK] model_loaded=$($health.model_loaded)  version=$($health.model_version)" -ForegroundColor Green
         } catch {
             Write-Host "  API Health    [OK]" -ForegroundColor Green
