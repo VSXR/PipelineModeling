@@ -224,7 +224,7 @@ flowchart TD
     B --> C["dvc repro\n→ re-entrena modelo"]
     C --> D["dvc push --remote local/minio\n→ artefacto en dvc-remote/ o MinIO"]
     D --> E["git commit + git tag v2.1.0\n→ metadatos versionados"]
-    E --> F["POST /version/switch\n{\"git_ref\": \"v2.1.0\"}"]
+    E --> F["POST /version/switch\nbody: git_ref=v2.1.0"]
     F --> G["git checkout v2.1.0 -- .dvc\ndvc pull --force\njoblib.load(model.pkl)"]
     G --> H["Modelo activo cambiado\nsin reiniciar API"]
 ```
