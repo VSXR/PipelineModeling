@@ -1,0 +1,27 @@
+schema: '2.0'
+stages:
+  train:
+    cmd: python model/train.py
+    deps:
+    - path: model/train.py
+      hash: md5
+      md5: d7f4f05640d260b44cf2dc330bfba778
+      size: 3173
+    params:
+      model/train.py:
+        N_FEATURES: 10
+        N_SAMPLES: 2000
+        RANDOM_STATE: 42
+    outs:
+    - path: model/metrics.json
+      hash: md5
+      md5: 785ab0cb5cedc70db4bc8e2907c1cbde
+      size: 110
+    - path: model/plots/confusion_matrix.csv
+      hash: md5
+      md5: 558e5d95b3e7cc71f6fe8138f8482ed2
+      size: 54
+    - path: model/weights/model.pkl
+      hash: md5
+      md5: 99d54e97d7e8a046eac2a9315d445c52
+      size: 1169

@@ -90,9 +90,9 @@ def train() -> None:
     metrics = save_metrics(y_test, y_pred, METRICS_PATH)
     save_confusion_matrix(y_test, y_pred, CM_PATH)
 
-    print(f"Model   → {WEIGHTS_PATH}")
-    print(f"Metrics → {METRICS_PATH}")
-    print(f"Plots   → {CM_PATH}")
+    print(f"Model   -> {WEIGHTS_PATH}")
+    print(f"Metrics -> {METRICS_PATH}")
+    print(f"Plots   -> {CM_PATH}")
     print(f"  accuracy : {metrics['accuracy']}")
     print(f"  f1       : {metrics['f1']}")
     print(f"  classes  : {model.classes_}")
