@@ -26,10 +26,10 @@
 
 [CmdletBinding()]
 param(
-    [Parameter(Position = 0)][string]$Command  = 'help',
+    [Parameter(Position = 0)][string]$Command     = 'help',
     [string]$Version      = '',
-    [int]$NSamples        = 0,
-    [int]$RandomState     = 0
+    [int]$RandomState     = 0,
+    [ValidateSet('local','minio')][string]$Remote = 'local'
 )
 
 Set-StrictMode -Version Latest
@@ -203,14 +203,14 @@ function Invoke-Start {
         Write-Ok "Modelo inicial entrenado"
     }
 
-    # Docker (Prometheus + Grafana)
-    Write-Step "Arrancando Prometheus + Grafana..."
+    # Docker (MinIO + Prometheus + Grafana)
+    Write-Step "Arrancando MinIO + Prometheus + Grafana..."
     docker compose `
         -f (Join-Path $ROOT 'docker-compose.yml') `
         -f (Join-Path $ROOT 'docker-compose.override.yml') `
-        up -d prometheus grafana 2>&1 | Out-Null
+        up -d minio minio-init prometheus grafana 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) { Write-Fail "docker compose fallo." }
-    Write-Ok "Prometheus :9090 y Grafana :3000 arrancados"
+    Write-Ok "MinIO :9000/:9001, Prometheus :9090, Grafana :3000 arrancados"
 
     # API
     $apiCmd = @"
@@ -303,11 +303,11 @@ function Invoke-Stop {
             ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
     }
 
-    Write-Step "Parando Prometheus + Grafana..."
+    Write-Step "Parando contenedores Docker..."
     docker compose `
         -f (Join-Path $ROOT 'docker-compose.yml') `
         -f (Join-Path $ROOT 'docker-compose.override.yml') `
-        stop prometheus grafana 2>&1 | Out-Null
+        stop prometheus grafana minio 2>&1 | Out-Null
 
     Remove-Item $PIDSFILE -ErrorAction SilentlyContinue
 
@@ -355,7 +355,7 @@ function Invoke-Status {
 
     # Docker
     Write-Host ""
-    $containers = @('prometheus', 'grafana')
+    $containers = @('prometheus', 'grafana', 'pipeline_minio')
     foreach ($c in $containers) {
         $state = docker inspect --format='{{.State.Status}}' $c 2>$null
         $ok    = $LASTEXITCODE -eq 0 -and $state -eq 'running'
@@ -408,16 +408,11 @@ function Invoke-Train {
     # Actualizar parametros
     Write-Step "Actualizando parametros en model/train.py..."
     $content = Get-Content $TRAIN -Raw
-    if ($NSamples -gt 0) {
-        $content = $content -replace 'N_SAMPLES\s*=\s*[\d_]+', "N_SAMPLES = $NSamples"
-        Write-Ok "N_SAMPLES = $NSamples"
-    }
     if ($RandomState -gt 0) {
         $content = $content -replace 'RANDOM_STATE\s*=\s*\d+', "RANDOM_STATE = $RandomState"
         Write-Ok "RANDOM_STATE = $RandomState"
-    }
-    if ($NSamples -eq 0 -and $RandomState -eq 0) {
-        Write-Warn "Sin parametros nuevos — DVC puede usar cache si nada cambio."
+    } else {
+        Write-Warn "Sin parametros nuevos — DVC puede usar cache si nada cambio. Pasa -RandomState <int> diferente."
     }
     Set-Content -Path $TRAIN -Value $content -NoNewline
 
@@ -432,10 +427,10 @@ function Invoke-Train {
     Write-Ok "Pipeline ejecutado, dvc.lock actualizado"
 
     # dvc push
-    Write-Step "dvc push --remote local..."
-    & $DVC push --remote local 2>&1 | ForEach-Object { Write-Info "  $_" }
-    if ($LASTEXITCODE -ne 0) { Write-Fail "dvc push fallo." }
-    Write-Ok "Artefacto subido al remote local"
+    Write-Step "dvc push --remote $Remote..."
+    & $DVC push --remote $Remote 2>&1 | ForEach-Object { Write-Info "  $_" }
+    if ($LASTEXITCODE -ne 0) { Write-Fail "dvc push --remote $Remote fallo." }
+    Write-Ok "Artefacto subido al remote '$Remote'"
 
     # git commit
     Write-Step "git commit..."
@@ -488,14 +483,15 @@ function Show-Help {
     Write-Host "    train              Entrena y versiona un nuevo modelo"
     Write-Host ""
     Write-Host "  Opciones de train:"
-    Write-Host "    -Version <vX.Y.Z>  Tag semántico (obligatorio)"
-    Write-Host "    -NSamples <int>    Nuevo valor de N_SAMPLES en train.py"
-    Write-Host "    -RandomState <int> Nuevo valor de RANDOM_STATE en train.py"
+    Write-Host "    -Version <vX.Y.Z>        Tag semantico (obligatorio)"
+    Write-Host "    -RandomState <int>        Nuevo valor de RANDOM_STATE en train.py"
+    Write-Host "    -Remote <local|minio>     Remote DVC destino (default: local)"
     Write-Host ""
     Write-Host "  Ejemplos:"
     Write-Host "    .\pipeline.ps1 setup"
     Write-Host "    .\pipeline.ps1 start"
-    Write-Host "    .\pipeline.ps1 train -Version v1.3.0 -NSamples 8000"
+    Write-Host "    .\pipeline.ps1 train -Version v2.0.0 -RandomState 99"
+    Write-Host "    .\pipeline.ps1 train -Version v2.1.0 -RandomState 7 -Remote minio"
     Write-Host "    .\pipeline.ps1 stop"
     Write-Host ""
 }

@@ -39,3 +39,9 @@ VERSION_SWITCHES = Counter(
     "Cumulative DVC-backed model version switches by outcome",
     ["status"],
 )
+
+MODEL_LOAD_DURATION = Histogram(
+    "pipeline_model_load_duration_seconds",
+    "Wall-clock time for a DVC pull + joblib reload during version switch",
+    buckets=[0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0],
+)

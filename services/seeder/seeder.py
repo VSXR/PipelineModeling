@@ -35,7 +35,7 @@ TRAIN_INTERVAL = float(os.getenv("TRAINING_INTERVAL_S", "30"))
 BATCH_SIZE = int(os.getenv("TRAINING_BATCH_SIZE", "50"))
 DRIFT_ONSET = float(os.getenv("DRIFT_ONSET_AFTER_S", "120"))
 DRIFT_MAG = float(os.getenv("DRIFT_MAGNITUDE", "2.0"))
-N_FEATURES = 10
+N_FEATURES = 30  # breast_cancer dataset
 BUFFER_MAX = 2_000
 API_STARTUP_GRACE = 5.0
 

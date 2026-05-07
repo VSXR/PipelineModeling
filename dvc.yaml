@@ -6,7 +6,7 @@ stages:
       - model/train.py
     params:
       - model/train.py:
-          - N_SAMPLES
+          - DATASET
           - N_FEATURES
           - RANDOM_STATE
     outs:

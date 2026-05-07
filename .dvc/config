@@ -4,3 +4,9 @@
 
 ['remote "local"']
     url = dvc-remote
+
+['remote "minio"']
+    url = s3://dvc-artifacts
+    endpointurl = http://localhost:9000
+    access_key_id = minioadmin
+    secret_access_key = minioadmin

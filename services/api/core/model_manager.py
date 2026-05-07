@@ -1,25 +1,26 @@
 import asyncio
 import subprocess
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-import joblib
-import numpy as np
-from sklearn.linear_model import SGDClassifier
-
 from .config import settings
-from .metrics import MODEL_LOADED
+from .metrics import MODEL_LOAD_DURATION, MODEL_LOADED
+from .predictor import BasePredictor, SKLearnPredictor
 
 
 class ModelManager:
     """
-    Thread-safe singleton managing model lifecycle.
+    Thread-safe singleton managing the active predictor lifecycle.
 
-    Hot-swap via DVC is serialised through _swap_lock so concurrent
-    version-switch requests queue rather than corrupting model state.
-    Inference runs under _infer_lock (reader pattern) and is never
-    blocked by training; partial_fit and version-switch share _swap_lock.
+    Locking strategy:
+      _infer_lock — reader lock; multiple concurrent inference calls allowed.
+      _swap_lock  — writer lock; serialises partial_fit and version switches.
+
+    Predictor abstraction: ModelManager depends only on BasePredictor.
+    To swap in a different model type (XGBoost, HuggingFace…) it is enough
+    to pass a different BasePredictor subclass — no router changes needed.
     """
 
     _instance: Optional["ModelManager"] = None
@@ -36,21 +37,21 @@ class ModelManager:
 
     def _init_locks(self) -> None:
         if not self._initialised:
-            self._infer_lock: asyncio.Lock = asyncio.Lock()
-            self._swap_lock: asyncio.Lock = asyncio.Lock()
-            self._model: Optional[SGDClassifier] = None
-            self._version: str = "unloaded"
+            self._infer_lock: asyncio.Lock    = asyncio.Lock()
+            self._swap_lock:  asyncio.Lock    = asyncio.Lock()
+            self._predictor:  Optional[BasePredictor] = None
+            self._version:    str             = "unloaded"
             self._initialised = True
 
     async def _load_weights(self, model_path: Optional[str] = None) -> None:
         path = Path(model_path or settings.model_path)
         loop = asyncio.get_running_loop()
         if path.exists():
-            self._model = await loop.run_in_executor(
-                None, joblib.load, str(path)
+            self._predictor = await loop.run_in_executor(
+                None, SKLearnPredictor.load, str(path)
             )
         else:
-            self._model = SGDClassifier(loss="log_loss", random_state=42)
+            self._predictor = SKLearnPredictor.create_default()
         self._version = datetime.now(timezone.utc).isoformat()
         MODEL_LOADED.set(1)
 
@@ -62,39 +63,31 @@ class ModelManager:
     async def predict(self, features: list) -> dict:
         self._init_locks()
         async with self._infer_lock:
-            if self._model is None:
+            if self._predictor is None:
                 raise RuntimeError("Model not loaded")
 
-            X = np.array(features, dtype=np.float64).reshape(1, -1)
+            import numpy as np
+            X    = np.array(features, dtype=np.float64).reshape(1, -1)
             loop = asyncio.get_running_loop()
-
-            pred = await loop.run_in_executor(None, self._model.predict, X)
-            try:
-                proba = await loop.run_in_executor(
-                    None, self._model.predict_proba, X
-                )
-                probability = proba[0].tolist()
-            except Exception:
-                probability = [1.0, 0.0] if pred[0] == 0 else [0.0, 1.0]
-
-            return {"prediction": int(pred[0]), "probability": probability}
+            prediction, probability = await loop.run_in_executor(
+                None, self._predictor.predict, X
+            )
+            return {"prediction": prediction, "probability": probability}
 
     async def partial_fit(self, features: list, labels: list) -> None:
         self._init_locks()
         async with self._swap_lock:
-            if self._model is None:
+            if self._predictor is None:
                 raise RuntimeError("Model not loaded")
 
-            X = np.array(features, dtype=np.float64)
-            y = np.array(labels, dtype=np.int64)
+            import numpy as np
+            X    = np.array(features, dtype=np.float64)
+            y    = np.array(labels,   dtype=np.int64)
             loop = asyncio.get_running_loop()
 
+            await loop.run_in_executor(None, self._predictor.partial_fit, X, y)
             await loop.run_in_executor(
-                None,
-                lambda: self._model.partial_fit(X, y, classes=[0, 1]),
-            )
-            await loop.run_in_executor(
-                None, joblib.dump, self._model, settings.model_path
+                None, self._predictor.save, settings.model_path
             )
             self._version = datetime.now(timezone.utc).isoformat()
 
@@ -105,11 +98,13 @@ class ModelManager:
         async with self._swap_lock:
             MODEL_LOADED.set(0)
             loop = asyncio.get_running_loop()
+            t0   = time.perf_counter()
             try:
                 await loop.run_in_executor(None, self._run_dvc_pull, git_ref)
                 await self._load_weights()
+                MODEL_LOAD_DURATION.observe(time.perf_counter() - t0)
             except Exception:
-                if self._model is not None:
+                if self._predictor is not None:
                     MODEL_LOADED.set(1)
                 raise
 
@@ -118,26 +113,18 @@ class ModelManager:
     def _run_dvc_pull(self, git_ref: str) -> None:
         subprocess.run(
             ["git", "checkout", git_ref, "--", ".dvc"],
-            cwd=settings.git_repo_path,
-            check=True,
-            capture_output=True,
-            text=True,
+            cwd=settings.git_repo_path, check=True,
+            capture_output=True, text=True,
         )
-        # dvc.lock maps pipeline stage outputs to content hashes.
-        # Without it at the target ref, dvc pull cannot resolve the right artifact.
         subprocess.run(
             ["git", "checkout", git_ref, "--", "dvc.lock"],
-            cwd=settings.git_repo_path,
-            check=False,  # tolerate refs that predate dvc.lock
-            capture_output=True,
-            text=True,
+            cwd=settings.git_repo_path, check=False,
+            capture_output=True, text=True,
         )
         subprocess.run(
             ["dvc", "pull", "--force", "--remote", "local"],
-            cwd=settings.git_repo_path,
-            check=True,
-            capture_output=True,
-            text=True,
+            cwd=settings.git_repo_path, check=True,
+            capture_output=True, text=True,
         )
 
     @property
@@ -146,4 +133,4 @@ class ModelManager:
 
     @property
     def is_loaded(self) -> bool:
-        return self._model is not None
+        return self._predictor is not None

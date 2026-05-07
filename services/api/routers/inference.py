@@ -2,6 +2,7 @@ import time
 
 from fastapi import APIRouter, HTTPException
 
+from core.drift import DriftTracker
 from core.metrics import INFERENCE_LATENCY, INFERENCE_REQUESTS
 from core.model_manager import ModelManager
 from schemas.inference import InferenceRequest, InferenceResponse
@@ -17,6 +18,8 @@ async def infer(request: InferenceRequest) -> InferenceResponse:
         result = await manager.predict(request.features)
         INFERENCE_REQUESTS.labels(status="ok").inc()
         INFERENCE_LATENCY.observe(time.perf_counter() - t0)
+        # Update inference drift tracker (emits every 50 samples)
+        DriftTracker().update_single(request.features)
         return InferenceResponse(
             **result,
             model_version=manager.version,

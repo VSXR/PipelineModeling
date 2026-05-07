@@ -1,6 +1,6 @@
 import httpx
 
-from conftest import FEATURES_10
+from conftest import FEATURES_30
 
 EXPECTED_METRICS = [
     "pipeline_model_loaded",
@@ -10,6 +10,7 @@ EXPECTED_METRICS = [
     "pipeline_training_samples_total",
     "pipeline_data_drift_score",
     "pipeline_version_switches_total",
+    "pipeline_model_load_duration_seconds",
 ]
 
 
@@ -45,7 +46,7 @@ def test_inference_counter_increments(client: httpx.Client) -> None:
         return float(lines[0].split()[-1]) if lines else 0.0
 
     before = _get_total()
-    client.post("/infer/", json={"features": FEATURES_10})
+    client.post("/infer/", json={"features": FEATURES_30})
     after = _get_total()
 
     assert after == before + 1.0
@@ -61,8 +62,8 @@ def test_training_samples_counter_increments(client: httpx.Client) -> None:
     n = 4
     before = _get_total()
     client.post("/train/", json={
-        "features": [[float(i)] * 10 for i in range(n)],
-        "labels": [i % 2 for i in range(n)],
+        "features": [[float(i) * 0.1] * 30 for i in range(n)],
+        "labels":   [i % 2 for i in range(n)],
     })
     after = _get_total()
 
@@ -70,7 +71,7 @@ def test_training_samples_counter_increments(client: httpx.Client) -> None:
 
 
 def test_inference_latency_histogram_present(client: httpx.Client) -> None:
-    client.post("/infer/", json={"features": FEATURES_10})
+    client.post("/infer/", json={"features": FEATURES_30})
     text = client.get("/metrics").text
     assert "pipeline_inference_latency_seconds_bucket" in text
     assert "pipeline_inference_latency_seconds_count" in text

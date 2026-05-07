@@ -1,18 +1,11 @@
 """
-Bootstrap: entrena un SGDClassifier inicial y genera los artefactos
-que DVC espera según dvc.yaml:
+Bootstrap: entrena un SGDClassifier con el dataset Breast Cancer Wisconsin
+y genera los artefactos que DVC espera según dvc.yaml.
 
-  - model/weights/model.pkl    (outs)
-  - model/metrics.json         (metrics)
-  - model/plots/confusion_matrix.csv  (plots)
-
-Uso:
-    python model/train.py
-    dvc add model/weights/model.pkl
-    git add model/weights/model.pkl.dvc model/metrics.json model/plots/
-    git commit -m "feat: initial model v1"
-    git tag v1.0.0
-    dvc push
+Salidas:
+  model/weights/model.pkl         (outs)
+  model/metrics.json              (metrics)
+  model/plots/confusion_matrix.csv (plots)
 """
 
 import json
@@ -20,6 +13,7 @@ from pathlib import Path
 
 import joblib
 import numpy as np
+from sklearn.datasets import load_breast_cancer
 from sklearn.linear_model import SGDClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import (
@@ -30,32 +24,45 @@ from sklearn.metrics import (
     confusion_matrix,
 )
 
-# ── Parámetros rastreados por DVC (params) ───────────────────────────
-N_SAMPLES = 6000
-N_FEATURES = 10
-RANDOM_STATE = 42
+# ── Parámetros rastreados por DVC ────────────────────────────────────────────
+DATASET      = "breast_cancer"   # sklearn built-in, binario, 30 features
+N_FEATURES   = 30                # fijado por el dataset
+RANDOM_STATE = 42                # controla train/test split y SGD
 
-# ── Rutas de salida ──────────────────────────────────────────────────
-BASE = Path(__file__).parent
+# ── Rutas de salida ──────────────────────────────────────────────────────────
+BASE         = Path(__file__).parent
 WEIGHTS_PATH = BASE / "weights" / "model.pkl"
 METRICS_PATH = BASE / "metrics.json"
-PLOTS_DIR = BASE / "plots"
-CM_PATH = PLOTS_DIR / "confusion_matrix.csv"
+PLOTS_DIR    = BASE / "plots"
+CM_PATH      = PLOTS_DIR / "confusion_matrix.csv"
+
+# Nombres de features exportados para que otros módulos los consuman
+FEATURE_NAMES = [
+    "radius_mean",      "texture_mean",     "perimeter_mean",  "area_mean",
+    "smoothness_mean",  "compactness_mean",  "concavity_mean",  "concpts_mean",
+    "symmetry_mean",    "fracdim_mean",
+    "radius_se",        "texture_se",        "perimeter_se",    "area_se",
+    "smoothness_se",    "compactness_se",    "concavity_se",    "concpts_se",
+    "symmetry_se",      "fracdim_se",
+    "radius_worst",     "texture_worst",     "perimeter_worst", "area_worst",
+    "smoothness_worst", "compactness_worst", "concavity_worst", "concpts_worst",
+    "symmetry_worst",   "fracdim_worst",
+]
 
 
-def generate_dataset(n: int, n_features: int, rng: np.random.Generator):
-    X = rng.standard_normal((n, n_features))
-    y = (X[:, 0] + 0.5 * X[:, 1] + 0.25 * X[:, 2] > 0.5).astype(int)
-    return X, y
+def load_dataset():
+    data = load_breast_cancer()
+    return data.data, data.target
 
 
 def save_metrics(y_true, y_pred, path: Path) -> dict:
     metrics = {
-        "accuracy": round(accuracy_score(y_true, y_pred), 5),
-        "f1": round(f1_score(y_true, y_pred), 5),
-        "precision": round(precision_score(y_true, y_pred), 5),
-        "recall": round(recall_score(y_true, y_pred), 5),
-        "n_samples": len(y_true),
+        "accuracy":  round(float(accuracy_score(y_true, y_pred)),  5),
+        "f1":        round(float(f1_score(y_true, y_pred)),        5),
+        "precision": round(float(precision_score(y_true, y_pred)), 5),
+        "recall":    round(float(recall_score(y_true, y_pred)),    5),
+        "n_samples": int(len(y_true)),
+        "dataset":   DATASET,
     }
     path.write_text(json.dumps(metrics, indent=2))
     return metrics
@@ -72,8 +79,7 @@ def save_confusion_matrix(y_true, y_pred, path: Path) -> None:
 
 
 def train() -> None:
-    rng = np.random.default_rng(RANDOM_STATE)
-    X, y = generate_dataset(N_SAMPLES, N_FEATURES, rng)
+    X, y = load_dataset()
 
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, random_state=RANDOM_STATE, stratify=y,
@@ -90,9 +96,9 @@ def train() -> None:
     metrics = save_metrics(y_test, y_pred, METRICS_PATH)
     save_confusion_matrix(y_test, y_pred, CM_PATH)
 
-    print(f"Model   -> {WEIGHTS_PATH}")
-    print(f"Metrics -> {METRICS_PATH}")
-    print(f"Plots   -> {CM_PATH}")
+    print(f"Dataset  -> {DATASET} ({len(X)} samples, {N_FEATURES} features)")
+    print(f"Model    -> {WEIGHTS_PATH}")
+    print(f"Metrics  -> {METRICS_PATH}")
     print(f"  accuracy : {metrics['accuracy']}")
     print(f"  f1       : {metrics['f1']}")
     print(f"  classes  : {model.classes_}")
