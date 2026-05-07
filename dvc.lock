@@ -5,23 +5,23 @@ stages:
     deps:
     - path: model/train.py
       hash: md5
-      md5: d7f4f05640d260b44cf2dc330bfba778
+      md5: e455f37b96efecbfbb7f865ca597af3a
       size: 3173
     params:
       model/train.py:
         N_FEATURES: 10
-        N_SAMPLES: 2000
+        N_SAMPLES: 4000
         RANDOM_STATE: 42
     outs:
     - path: model/metrics.json
       hash: md5
-      md5: 785ab0cb5cedc70db4bc8e2907c1cbde
-      size: 110
+      md5: fa73394f64d1823d3c43477bebae72b7
+      size: 109
     - path: model/plots/confusion_matrix.csv
       hash: md5
-      md5: 558e5d95b3e7cc71f6fe8138f8482ed2
+      md5: eb411e888fe10bf9540889191b04ab70
       size: 54
     - path: model/weights/model.pkl
       hash: md5
-      md5: 99d54e97d7e8a046eac2a9315d445c52
+      md5: de65fe1b8abbc8ea499cdb1c2b362e79
       size: 1169

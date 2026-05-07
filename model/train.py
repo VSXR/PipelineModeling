@@ -31,7 +31,7 @@ from sklearn.metrics import (
 )
 
 # ── Parámetros rastreados por DVC (params) ───────────────────────────
-N_SAMPLES = 2_000
+N_SAMPLES = 4_000
 N_FEATURES = 10
 RANDOM_STATE = 42
 
