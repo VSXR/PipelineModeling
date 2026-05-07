@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException
 
 from core.metrics import VERSION_SWITCHES
 from core.model_manager import ModelManager
-from shemas.payloads import (
+from schemas.versioning import (
     VersionCurrentResponse,
     VersionSwitchRequest,
     VersionSwitchResponse,

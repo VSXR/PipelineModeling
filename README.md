@@ -41,7 +41,10 @@ Sistema de aprendizaje continuo para modelos de IA orquestado con Docker Compose
 
 ```
 PipelineModeling/
+├── start.ps1                         # Arranca todo el workspace con un comando
+├── stop.ps1                          # Para todos los servicios
 ├── docker-compose.yml
+├── docker-compose.override.yml       # Override local: Prometheus apunta a host.docker.internal
 ├── dvc.yaml                          # Pipeline DVC: train → model.pkl
 ├── dvc.lock                          # Generado tras dvc repro (rastreado por git)
 ├── .dvc/config                       # Remote local → ./dvc-remote
@@ -63,11 +66,15 @@ PipelineModeling/
 │   │   │   ├── metrics.py            # Gauges, Counters, Histogramas Prometheus
 │   │   │   └── model_manager.py      # Singleton; asyncio locks; DVC pull
 │   │   ├── routers/
+│   │   │   ├── __init__.py
 │   │   │   ├── inference.py          # POST /infer/
 │   │   │   ├── training.py           # POST /train/ + detección de drift (EMA)
 │   │   │   └── versioning.py         # GET /version/current · POST /version/switch
-│   │   └── shemas/
-│   │       └── payloads.py           # Modelos Pydantic v2 request/response
+│   │   └── schemas/
+│   │       ├── __init__.py           # Re-exporta todos los modelos
+│   │       ├── inference.py          # InferenceRequest / InferenceResponse
+│   │       ├── training.py           # TrainingRequest / TrainingResponse
+│   │       └── versioning.py         # VersionSwitch*, VersionCurrentResponse
 │   ├── seeder/
 │   │   ├── seeder.py                 # 3 corutinas: inference, training, drift
 │   │   ├── requirements.txt
@@ -92,55 +99,78 @@ PipelineModeling/
 
 ## Prerrequisitos
 
-- **Docker Desktop** ≥ 4.x (incluye Compose v2) o Docker Engine + `docker compose` plugin
+- **Docker Desktop** ≥ 4.x (incluye Compose v2)
 - **Git** ≥ 2.x
-- **Python 3.11+** (solo para el flujo de DVC en el host; no necesario para el arranque básico)
+- **Python 3.11+** con entorno virtual `.venv` configurado (ver abajo)
 
 Para verificar:
 
-```bash
+```powershell
 docker compose version   # debe mostrar v2.x
 git --version
 python --version
+```
+
+### Configurar el entorno virtual (primera vez)
+
+```powershell
+python -m venv .venv
+.venv\Scripts\pip install `
+  -r services/api/requirements.txt `
+  -r services/frontend/requirements.txt `
+  -r services/seeder/requirements.txt `
+  -r model/requirements.txt
 ```
 
 ---
 
 ## Inicio rápido
 
-### 1. Clonar y configurar el entorno
+Hay dos modos de arranque. Elige según tu caso de uso:
 
-```bash
+| Modo | Cuándo usarlo | Comando |
+|---|---|---|
+| **Script local** (recomendado para desarrollo) | API, frontend y seeder corren en `.venv` con `--reload`; Prometheus y Grafana en Docker | `.\start.ps1` |
+| **Docker Compose completo** | Todo en contenedores; ideal para pruebas de integración o entrega | `docker compose up --build` |
+
+---
+
+### Modo A — Script local (`start.ps1`)
+
+#### 1. Clonar el repositorio
+
+```powershell
 git clone <url-del-repositorio>
 cd PipelineModeling
-cp .env.example .env
 ```
 
-Edita `.env` si necesitas cambiar la contraseña de Grafana u otros parámetros. Los valores por defecto son suficientes para desarrollo local.
+#### 2. Ejecutar el script de arranque
 
-### 2. Construir e iniciar todos los servicios
-
-```bash
-docker compose up --build
+```powershell
+.\start.ps1
 ```
 
-El flag `--build` es necesario en el primer arranque o cuando se modifica código. Para arranques posteriores:
+> **Primera vez:** si PowerShell bloquea la ejecución, habilita scripts de usuario:
+> ```powershell
+> Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+> ```
 
-```bash
-docker compose up
-```
+El script realiza automáticamente:
 
-Docker Compose respeta el orden de dependencias. El seeder y el frontend esperan a que el healthcheck de la API pase antes de arrancar.
+1. Verifica que Docker Desktop esté corriendo y que `.venv` exista
+2. Detecta conflictos de puertos (8000, 8501, 9090, 3000) y advierte antes de continuar
+3. Crea `.env` desde `.env.example` si no existe
+4. Entrena el modelo inicial si `model/weights/model.pkl` no existe
+5. Levanta **Prometheus** y **Grafana** en Docker (`docker-compose.override.yml` activo)
+6. Abre una ventana de terminal para la **API** (uvicorn `--reload`)
+7. Espera a que la API pase el healthcheck (hasta 60 s)
+8. Abre una ventana de terminal para el **Frontend** (Streamlit)
+9. Abre una ventana de terminal para el **Seeder**
+10. Muestra la tabla de URLs
 
-### 3. Verificar el estado
+Al terminar tienes **3 ventanas de terminal** abiertas (API, Frontend, Seeder) donde puedes ver los logs en tiempo real.
 
-```bash
-docker compose ps
-```
-
-Todos los servicios deben mostrar `healthy` o `running`. Si alguno aparece como `restarting`, consulta la sección [Solución de problemas](#solución-de-problemas).
-
-### 4. Acceder a los servicios
+#### 3. Acceder a los servicios
 
 | URL | Servicio |
 |---|---|
@@ -148,13 +178,53 @@ Todos los servicios deben mostrar `healthy` o `running`. Si alguno aparece como 
 | http://localhost:8000/docs | API — Swagger UI interactivo |
 | http://localhost:8000/health | Estado de la API en JSON |
 | http://localhost:9090 | Prometheus |
-| http://localhost:3000 | Grafana (admin / admin) |
+| http://localhost:3000 | Grafana (admin / ver `.env`) |
 
-### 5. Apagar
+#### 4. Apagar
 
-```bash
-docker compose down          # detiene y elimina los contenedores, preserva volúmenes
-docker compose down -v       # también elimina los volúmenes (datos persistentes)
+```powershell
+.\stop.ps1
+```
+
+Cierra las tres ventanas de terminal, para los contenedores de Prometheus y Grafana, y elimina `.pids.json`.
+
+---
+
+### Modo B — Docker Compose completo
+
+#### 1. Clonar y configurar
+
+```powershell
+git clone <url-del-repositorio>
+cd PipelineModeling
+Copy-Item .env.example .env
+```
+
+#### 2. Construir e iniciar
+
+```powershell
+docker compose up --build
+```
+
+El flag `--build` es necesario en el primer arranque o cuando se modifica código. Para arranques posteriores:
+
+```powershell
+docker compose up
+```
+
+#### 3. Verificar el estado
+
+```powershell
+docker compose ps
+```
+
+Todos los servicios deben mostrar `healthy` o `running`.
+
+#### 4. Apagar
+
+```powershell
+docker compose down       # preserva volúmenes
+docker compose down -v    # elimina también los volúmenes
 ```
 
 ---
@@ -335,41 +405,123 @@ Las métricas están disponibles en http://localhost:9090. Las alertas configura
 
 ## Desarrollo y testing
 
-### Ejecutar solo la API en local (sin Docker)
+### Arranque y parada con los scripts
 
-```bash
-cd services/api
-pip install -r requirements.txt
-MODEL_PATH=../../model/weights/model.pkl \
-GIT_REPO_PATH=../.. \
-uvicorn main:app --reload --port 8000
+```powershell
+.\start.ps1   # arranca todo (verifica prerrequisitos, healthchecks, abre terminales)
+.\stop.ps1    # para todo (PIDs + ventanas huérfanas + Docker)
 ```
 
-### Reconstruir un servicio específico sin reiniciar el stack
+`start.ps1` guarda los PIDs de los procesos locales en `.pids.json` (ignorado por git). Si hay puertos en uso, pregunta antes de continuar.
 
-```bash
+### Iterar sobre el código de la API
+
+Con `.\start.ps1` activo, uvicorn corre con `--reload`. Cualquier cambio en `services/api/` se recarga automáticamente sin reiniciar el resto del stack.
+
+### Reconstruir un servicio Docker específico
+
+```powershell
 docker compose up --build api --no-deps
 ```
 
-### Ver logs en tiempo real
+### Ver logs en tiempo real (modo Docker Compose)
 
-```bash
+```powershell
 docker compose logs -f api seeder        # API y seeder
 docker compose logs -f                   # todos los servicios
 ```
 
 ### Forzar un evento de drift manualmente
 
-El seeder activa el drift de forma automática tras `DRIFT_ONSET_AFTER_S` segundos. Para forzarlo inmediatamente, reinicia el seeder con un onset de 0:
+El seeder activa el drift automáticamente tras `DRIFT_ONSET_AFTER_S` segundos. Para forzarlo inmediatamente en modo local, cierra la ventana del seeder y ábrela de nuevo con la variable a 0:
 
-```bash
-docker compose stop seeder
-DRIFT_ONSET_AFTER_S=0 docker compose up -d seeder
+```powershell
+# En una terminal nueva:
+$env:API_URL            = "http://localhost:8000"
+$env:DRIFT_ONSET_AFTER_S = "0"
+$env:DRIFT_MAGNITUDE    = "2.0"
+& .venv\Scripts\python.exe services\seeder\seeder.py
 ```
+
+En modo Docker Compose:
+
+```powershell
+docker compose stop seeder
+$env:DRIFT_ONSET_AFTER_S = "0"
+docker compose up -d seeder
+```
+
+### Tests automatizados
+
+El proyecto incluye una suite de integración de **52 tests** que ejercita el pipeline completo contra la API en ejecución. Los tests usan `pytest` + `httpx` y se auto-omiten (`pytest.skip`) si la API no está disponible.
+
+#### Instalación de dependencias de test
+
+```powershell
+.venv\Scripts\pip install -r tests/requirements.txt
+```
+
+#### Ejecutar los tests
+
+La API debe estar corriendo (`.\start.ps1` o `docker compose up`) antes de lanzar la suite.
+
+```powershell
+# Contra la API local (por defecto http://localhost:8000)
+.venv\Scripts\pytest tests/
+
+# Contra otra URL (por ejemplo, un entorno de staging)
+$env:API_URL = "http://staging:8000"
+.venv\Scripts\pytest tests/
+```
+
+Para ver el resumen sin el detalle de cada test:
+
+```powershell
+.venv\Scripts\pytest tests/ -q
+```
+
+#### Estructura de la suite
+
+| Archivo | Tests | Qué cubre |
+|---|---|---|
+| [tests/test_health.py](tests/test_health.py) | 4 | `/health` devuelve 200, status ok, model_loaded, version string |
+| [tests/test_inference.py](tests/test_inference.py) | 11 | Predicción binaria, probabilidades, `request_id`, entradas inválidas (422), 20 peticiones concurrentes |
+| [tests/test_training.py](tests/test_training.py) | 12 | `partial_fit`, samples_trained, versión actualizada, entradas inválidas (422), drift score |
+| [tests/test_versioning.py](tests/test_versioning.py) | 7 | `/version/current`, consistencia con `/health`, ref inexistente (500), ref vacío (422) |
+| [tests/test_metrics.py](tests/test_metrics.py) | 7 | Todas las métricas presentes, `model_loaded=1.0`, contadores incrementan, histograma de latencia |
+| [tests/test_flow.py](tests/test_flow.py) | 8 | Golden path completo (health→infer→train→infer→drift→metrics→version), propagación de `request_id`, 5 rondas de entrenamiento consecutivas |
+
+El fixture `client` en [tests/conftest.py](tests/conftest.py) es de alcance sesión: crea un único `httpx.Client` para todos los tests y lo reutiliza, por lo que el orden de ejecución importa en los tests de flujo (el estado del modelo se acumula entre llamadas).
+
+#### Configuración (`pytest.ini`)
+
+```ini
+[pytest]
+testpaths = tests
+addopts = -v --tb=short
+```
+
+La variable de entorno `API_URL` sobreescribe la URL base del cliente (por defecto `http://localhost:8000`).
 
 ---
 
 ## Solución de problemas
+
+**`start.ps1` falla con "running scripts is disabled"**
+
+- Ejecuta una vez: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`
+
+**`start.ps1` falla con "Docker Desktop is not running"**
+
+- Abre Docker Desktop y espera a que el icono de la barra de tareas deje de girar antes de relanzar el script.
+
+**`start.ps1` falla con "API did not become healthy within 60s"**
+
+- Mira la ventana de terminal de la API para ver el error. Las causas más frecuentes son un puerto 8000 ocupado por otro proceso o un import error en el código.
+
+**`stop.ps1` no cierra una ventana de terminal**
+
+- Ciérrala manualmente. `stop.ps1` es best-effort: si el PID ya no existe o el proceso cambió, lo ignora.
 
 **El contenedor `api` no pasa el healthcheck**
 

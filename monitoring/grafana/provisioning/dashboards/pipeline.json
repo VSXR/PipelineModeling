@@ -150,7 +150,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus-pipeline" },
-          "expr": "pipeline_model_version_switches_total",
+          "expr": "pipeline_version_switches_total",
           "legendFormat": "switches",
           "refId": "A"
         }

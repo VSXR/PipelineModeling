@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 
 from core.metrics import INFERENCE_LATENCY, INFERENCE_REQUESTS
 from core.model_manager import ModelManager
-from shemas.payloads import InferenceRequest, InferenceResponse
+from schemas.inference import InferenceRequest, InferenceResponse
 
 router = APIRouter(prefix="/infer", tags=["inference"])
 

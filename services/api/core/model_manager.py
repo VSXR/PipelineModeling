@@ -105,8 +105,13 @@ class ModelManager:
         async with self._swap_lock:
             MODEL_LOADED.set(0)
             loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, self._run_dvc_pull, git_ref)
-            await self._load_weights()
+            try:
+                await loop.run_in_executor(None, self._run_dvc_pull, git_ref)
+                await self._load_weights()
+            except Exception:
+                if self._model is not None:
+                    MODEL_LOADED.set(1)
+                raise
 
         return previous
 

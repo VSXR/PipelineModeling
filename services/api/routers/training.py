@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException
 
 from core.metrics import DATA_DRIFT_SCORE, TRAINING_REQUESTS, TRAINING_SAMPLES
 from core.model_manager import ModelManager
-from shemas.payloads import TrainingRequest, TrainingResponse
+from schemas.training import TrainingRequest, TrainingResponse
 
 router = APIRouter(prefix="/train", tags=["training"])
 
