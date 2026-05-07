@@ -68,7 +68,7 @@ function Test-PortInUse([int]$port) {
 
 function Test-ApiHealth {
     try {
-        $r = Invoke-WebRequest -Uri 'http://localhost:8000/health' `
+        $r = Invoke-WebRequest -Uri 'http://127.0.0.1:8000/health' `
             -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
         return $r.StatusCode -eq 200
     } catch { return $false }

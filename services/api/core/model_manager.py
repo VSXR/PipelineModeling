@@ -24,6 +24,7 @@ class ModelManager:
     """
 
     _instance: Optional["ModelManager"] = None
+    _initialised: bool = False
 
     def __new__(cls) -> "ModelManager":
         if cls._instance is None:
