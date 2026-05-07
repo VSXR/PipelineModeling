@@ -1,47 +1,71 @@
-# Python
+# ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
 *.egg-info/
-dist/
-build/
 *.egg
 .eggs/
+dist/
+build/
 
-# Env
-.env
-*.env.local
+# ── Entorno virtual ───────────────────────────────────────────────────────────
 .venv/
+venv/
+env/
+.mypy_cache/
 
-# Model weights — tracked by DVC, not Git
-model/weights/
-!model/weights/.gitkeep
+# ── Variables de entorno ──────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
 
-# DVC internals
-.dvc/tmp/
-.dvc/plots/
-.dvc/cache/
+# ── Testing y cobertura ───────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.prof
 
-# Jupyter
+# ── Type checkers y linters ───────────────────────────────────────────────────
+.mypy_cache/
+.ruff_cache/
+.pyright/
+
+# ── Jupyter ───────────────────────────────────────────────────────────────────
 .ipynb_checkpoints/
 *.ipynb
 
-# IDEs
+# ── IDEs ──────────────────────────────────────────────────────────────────────
 .vscode/
 .idea/
 *.swp
 *.swo
+*.sublime-project
+*.sublime-workspace
 
-# OS
+# ── OS ────────────────────────────────────────────────────────────────────────
 .DS_Store
+.DS_Store?
+._*
 Thumbs.db
+ehthumbs.db
+Desktop.ini
 
-# DVC remote storage (bind-mounted into containers; not tracked by git)
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── DVC — artefactos y caché ──────────────────────────────────────────────────
+.dvc/tmp/
+.dvc/plots/
+.dvc/cache/
 dvc-remote/
 
-# Docker
-*.log
+# ── Modelo — gestionado por DVC, no por Git ───────────────────────────────────
+model/weights/
+!model/weights/.gitkeep
 
-# Runtime state
+# ── Estado en tiempo de ejecución ────────────────────────────────────────────
 .pids.json
