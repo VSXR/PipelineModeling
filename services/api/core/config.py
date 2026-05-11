@@ -6,8 +6,8 @@ class Settings(BaseSettings):
 
     app_name: str = "PipelineModeling API"
     model_path: str = "/app/model/weights/model.pkl"
-    git_repo_path: str = "/app"
-    dvc_remote_path: str = "/dvc-remote"
+    mlflow_tracking_uri: str = "http://mlflow:5000"
+    mlflow_model_name: str = "pipeline-model"
 
 
 settings = Settings()

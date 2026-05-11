@@ -17,9 +17,9 @@ from typing import List, Optional
 
 import numpy as np
 
-from .metrics import DATA_DRIFT_SCORE
+from .metrics import pipeline_metrics
 
-# Short names used as Prometheus label values (must be stable across restarts)
+# Short names used as OTel attribute values (must be stable across restarts)
 FEATURE_NAMES: List[str] = [
     "radius_mean",      "texture_mean",     "perimeter_mean",  "area_mean",
     "smoothness_mean",  "compactness_mean",  "concavity_mean",  "concpts_mean",
@@ -40,7 +40,7 @@ _EPS          = 1e-9
 class DriftTracker:
     """
     Singleton that maintains the per-feature EMA reference and emits
-    pipeline_data_drift_score metrics to Prometheus.
+    pipeline.data.drift_score metrics via OTel.
     """
 
     _instance: Optional["DriftTracker"] = None
@@ -83,7 +83,7 @@ class DriftTracker:
 
         feat_labels = FEATURE_NAMES if len(FEATURE_NAMES) >= n else [f"f{i}" for i in range(n)]
         for i, score in enumerate(scores):
-            DATA_DRIFT_SCORE.labels(feature=feat_labels[i]).set(float(score))
+            pipeline_metrics.set_drift_score(feat_labels[i], float(score))
 
         self._ref_means = (
             (1 - _EMA_ALPHA) * ref + _EMA_ALPHA * batch_means

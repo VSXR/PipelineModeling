@@ -1,0 +1,118 @@
+name: Retrain & Validate
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "model/train.py"
+      - "model/requirements.txt"
+  schedule:
+    - cron: "0 2 * * 1"   # Mondays 02:00 UTC — weekly baseline refresh
+  workflow_dispatch:
+    inputs:
+      min_accuracy:
+        description: "Minimum accuracy threshold (default 0.80)"
+        required: false
+        default: "0.80"
+      min_f1:
+        description: "Minimum F1 threshold (default 0.80)"
+        required: false
+        default: "0.80"
+
+env:
+  PYTHON_VERSION: "3.11"
+  # Override in repo secrets for production MLflow server
+  MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI || 'file:///tmp/mlruns' }}
+  MLFLOW_MODEL_NAME:   pipeline-model
+
+jobs:
+  retrain:
+    name: Train · Validate · Publish
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history so git tags work
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: model/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r model/requirements.txt
+
+      - name: Train model
+        run: python model/train.py
+
+      - name: Validate metrics
+        id: validate
+        env:
+          MIN_ACCURACY: ${{ inputs.min_accuracy || '0.80' }}
+          MIN_F1:       ${{ inputs.min_f1 || '0.80' }}
+        run: |
+          python - <<'PYEOF'
+          import json, os, sys
+          m = json.load(open("model/metrics.json"))
+          min_acc = float(os.environ["MIN_ACCURACY"])
+          min_f1  = float(os.environ["MIN_F1"])
+          failures = []
+          if m["accuracy"] < min_acc:
+              failures.append(f"accuracy {m['accuracy']:.5f} < {min_acc}")
+          if m["f1"] < min_f1:
+              failures.append(f"f1 {m['f1']:.5f} < {min_f1}")
+          if failures:
+              print("FAIL:", " | ".join(failures)); sys.exit(1)
+          print(f"PASS  accuracy={m['accuracy']}  f1={m['f1']}  n={m['n_samples']}")
+          # Expose metrics as step outputs
+          for k in ("accuracy", "f1", "precision", "recall"):
+              print(f"{k}={m[k]}", file=open(os.environ["GITHUB_OUTPUT"], "a"))
+          PYEOF
+
+      - name: Upload model artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-${{ github.sha }}
+          path: |
+            model/weights/model.pkl
+            model/metrics.json
+            model/plots/confusion_matrix.csv
+          retention-days: 90
+
+      - name: Tag release (main branch only)
+        if: github.ref == 'refs/heads/master'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="v$(date -u +%Y%m%d%H%M%S)"
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          ACC=$(python -c "import json; print(json.load(open('model/metrics.json'))['accuracy'])")
+          git tag -a "$VERSION" -m "Automated retrain | accuracy=${ACC}"
+          git push origin "$VERSION"
+          echo "RELEASE_TAG=${VERSION}" >> "$GITHUB_ENV"
+
+      - name: Create GitHub Release with metrics
+        if: github.ref == 'refs/heads/master'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name:     "Model ${{ env.RELEASE_TAG }}"
+          body: |
+            ## Automated retrain
+
+            | Metric    | Value |
+            |-----------|-------|
+            | accuracy  | ${{ steps.validate.outputs.accuracy }} |
+            | f1        | ${{ steps.validate.outputs.f1 }} |
+            | precision | ${{ steps.validate.outputs.precision }} |
+            | recall    | ${{ steps.validate.outputs.recall }} |
+
+            Commit: `${{ github.sha }}`
+          files: |
+            model/metrics.json
+            model/plots/confusion_matrix.csv

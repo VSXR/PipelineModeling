@@ -1,28 +1,33 @@
+"""
+Thread-safe singleton managing the active predictor lifecycle.
+
+Locking strategy:
+  _infer_lock — reader lock; multiple concurrent inference calls allowed.
+  _swap_lock  — writer lock; serialises partial_fit and version switches.
+
+Version backend: MLflow Model Registry.
+  - On startup:  loads from local model.pkl (no server dependency).
+  - switch_version(): loads a registered version from MLflow by version
+    number or alias (e.g. "Production", "Staging", "1", "2").
+"""
+from __future__ import annotations
+
 import asyncio
-import subprocess
+import os
+import random
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 from .config import settings
-from .metrics import MODEL_LOAD_DURATION, MODEL_LOADED
+from .metrics import pipeline_metrics
 from .predictor import BasePredictor, SKLearnPredictor
+
+chaos_state: dict = {"inference_error_rate": 0.0}
 
 
 class ModelManager:
-    """
-    Thread-safe singleton managing the active predictor lifecycle.
-
-    Locking strategy:
-      _infer_lock — reader lock; multiple concurrent inference calls allowed.
-      _swap_lock  — writer lock; serialises partial_fit and version switches.
-
-    Predictor abstraction: ModelManager depends only on BasePredictor.
-    To swap in a different model type (XGBoost, HuggingFace…) it is enough
-    to pass a different BasePredictor subclass — no router changes needed.
-    """
-
     _instance: Optional["ModelManager"] = None
     _initialised: bool = False
 
@@ -38,11 +43,13 @@ class ModelManager:
 
     def _init_locks(self) -> None:
         if not self._initialised:
-            self._infer_lock: asyncio.Lock    = asyncio.Lock()
-            self._swap_lock:  asyncio.Lock    = asyncio.Lock()
-            self._predictor:  Optional[BasePredictor] = None
-            self._version:    str             = "unloaded"
+            self._infer_lock: asyncio.Lock = asyncio.Lock()
+            self._swap_lock: asyncio.Lock = asyncio.Lock()
+            self._predictor: Optional[BasePredictor] = None
+            self._version: str = "unloaded"
             self._initialised = True
+
+    # ── startup load (local file, no MLflow dependency) ───────────────────────
 
     async def _load_weights(self, model_path: Optional[str] = None) -> None:
         path = Path(model_path or settings.model_path)
@@ -54,26 +61,35 @@ class ModelManager:
         else:
             self._predictor = SKLearnPredictor.create_default()
         self._version = datetime.now(timezone.utc).isoformat()
-        MODEL_LOADED.set(1)
+        pipeline_metrics.set_model_loaded(True)
 
     async def load(self, model_path: Optional[str] = None) -> None:
         self._init_locks()
         async with self._swap_lock:
             await self._load_weights(model_path)
 
+    # ── inference ─────────────────────────────────────────────────────────────
+
     async def predict(self, features: list) -> dict:
         self._init_locks()
         async with self._infer_lock:
             if self._predictor is None:
                 raise RuntimeError("Model not loaded")
+            if (
+                chaos_state["inference_error_rate"] > 0
+                and random.random() < chaos_state["inference_error_rate"]
+            ):
+                raise RuntimeError("Simulated inference error [chaos engineering]")
 
             import numpy as np
-            X    = np.array(features, dtype=np.float64).reshape(1, -1)
+            X = np.array(features, dtype=np.float64).reshape(1, -1)
             loop = asyncio.get_running_loop()
             prediction, probability = await loop.run_in_executor(
                 None, self._predictor.predict, X
             )
             return {"prediction": prediction, "probability": probability}
+
+    # ── incremental training ──────────────────────────────────────────────────
 
     async def partial_fit(self, features: list, labels: list) -> None:
         self._init_locks()
@@ -82,51 +98,51 @@ class ModelManager:
                 raise RuntimeError("Model not loaded")
 
             import numpy as np
-            X    = np.array(features, dtype=np.float64)
-            y    = np.array(labels,   dtype=np.int64)
+            X = np.array(features, dtype=np.float64)
+            y = np.array(labels, dtype=np.int64)
             loop = asyncio.get_running_loop()
 
             await loop.run_in_executor(None, self._predictor.partial_fit, X, y)
-            await loop.run_in_executor(
-                None, self._predictor.save, settings.model_path
-            )
+            await loop.run_in_executor(None, self._predictor.save, settings.model_path)
             self._version = datetime.now(timezone.utc).isoformat()
 
-    async def switch_version(self, git_ref: str) -> str:
+    # ── hot-swap via MLflow Model Registry ───────────────────────────────────
+
+    async def switch_version(self, model_ref: str) -> str:
+        """
+        Load a specific model version from MLflow Model Registry.
+
+        model_ref: version number ("1", "2") or alias ("Production", "Staging").
+        """
         self._init_locks()
         previous = self._version
 
         async with self._swap_lock:
-            MODEL_LOADED.set(0)
+            pipeline_metrics.set_model_loaded(False)
             loop = asyncio.get_running_loop()
-            t0   = time.perf_counter()
+            t0 = time.perf_counter()
             try:
-                await loop.run_in_executor(None, self._run_dvc_pull, git_ref)
-                await self._load_weights()
-                MODEL_LOAD_DURATION.observe(time.perf_counter() - t0)
+                await loop.run_in_executor(None, self._pull_from_registry, model_ref)
+                duration = time.perf_counter() - t0
+                pipeline_metrics.set_model_loaded(True)
+                pipeline_metrics.record_version_switch(status="ok", duration_s=duration)
             except Exception:
                 if self._predictor is not None:
-                    MODEL_LOADED.set(1)
+                    pipeline_metrics.set_model_loaded(True)
                 raise
 
         return previous
 
-    def _run_dvc_pull(self, git_ref: str) -> None:
-        subprocess.run(
-            ["git", "checkout", git_ref, "--", ".dvc"],
-            cwd=settings.git_repo_path, check=True,
-            capture_output=True, text=True,
-        )
-        subprocess.run(
-            ["git", "checkout", git_ref, "--", "dvc.lock"],
-            cwd=settings.git_repo_path, check=False,
-            capture_output=True, text=True,
-        )
-        subprocess.run(
-            ["dvc", "pull", "--force", "--remote", "local"],
-            cwd=settings.git_repo_path, check=True,
-            capture_output=True, text=True,
-        )
+    def _pull_from_registry(self, model_ref: str) -> None:
+        import mlflow.sklearn  # type: ignore[import]
+        tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5000")
+        model_name = os.getenv("MLFLOW_MODEL_NAME", "pipeline-model")
+        mlflow.set_tracking_uri(tracking_uri)
+        sk_model = mlflow.sklearn.load_model(f"models:/{model_name}/{model_ref}")
+        self._predictor = SKLearnPredictor(sk_model)
+        self._version = model_ref
+
+    # ── properties ────────────────────────────────────────────────────────────
 
     @property
     def version(self) -> str:

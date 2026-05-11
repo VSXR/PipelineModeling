@@ -1,0 +1,78 @@
+# OpenTelemetry Collector configuration
+# Receives OTLP from the API, processes, and exports to configured backends.
+#
+# Production SaaS exporters (Datadog, CloudWatch, GCP) are commented out.
+# Uncomment the relevant exporter, set the env vars in .env, and add the
+# exporter name to the service pipelines below.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    send_batch_size: 512
+    timeout: 5s
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+  # Enrich all telemetry with deployment metadata
+  resource:
+    attributes:
+      - key: deployment.environment
+        value: ${env:DEPLOY_ENV:-local}
+        action: upsert
+      - key: service.version
+        value: ${env:IMAGE_TAG:-dev}
+        action: upsert
+
+exporters:
+  # Always active: structured JSON logs to stdout (ingestable by CloudWatch
+  # Log Insights, GCP Logging, Datadog Log Management without any agent)
+  logging:
+    verbosity: normal
+
+  # ── Datadog (uncomment + set DATADOG_API_KEY in .env) ─────────────────────
+  # datadog:
+  #   api:
+  #     site: ${env:DD_SITE:-datadoghq.eu}
+  #     key:  ${env:DATADOG_API_KEY}
+
+  # ── AWS CloudWatch EMF (uncomment + configure AWS credentials) ─────────────
+  # awsemf:
+  #   namespace: PipelineMLOps
+  #   region:    ${env:AWS_DEFAULT_REGION:-eu-west-1}
+  #   log_group_name: /pipeline/api
+
+  # ── GCP Cloud Monitoring (uncomment + set GOOGLE_APPLICATION_CREDENTIALS) ──
+  # googlecloud:
+  #   project: ${env:GCP_PROJECT_ID}
+  #   metric:
+  #     prefix: custom.googleapis.com/pipeline/
+
+extensions:
+  zpages:
+    endpoint: 0.0.0.0:55679
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [zpages, health_check]
+  pipelines:
+    metrics:
+      receivers:  [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters:  [logging]
+      # Production: exporters: [logging, datadog]
+    traces:
+      receivers:  [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters:  [logging]
+    logs:
+      receivers:  [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters:  [logging]

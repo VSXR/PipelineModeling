@@ -37,15 +37,8 @@ COPY --from=builder /install /usr/local
 # API source
 COPY services/api/ .
 
-# DVC metadata needed at runtime for version switching
-COPY .dvc/config         .dvc/config
-COPY dvc.yaml            dvc.yaml
-COPY .dvcignore          .dvcignore
-
-RUN mkdir -p /app/model/weights /app/dvc-remote \
+RUN mkdir -p /app/model/weights \
     && chown -R appuser:appuser /app
-
-RUN git config --global --add safe.directory /app
 
 USER appuser
 

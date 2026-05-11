@@ -13,7 +13,6 @@ build/
 .venv/
 venv/
 env/
-.mypy_cache/
 
 # ── Variables de entorno ──────────────────────────────────────────────────────
 .env
@@ -57,13 +56,11 @@ Desktop.ini
 *.log
 logs/
 
-# ── DVC — artefactos y caché ──────────────────────────────────────────────────
-.dvc/tmp/
-.dvc/plots/
-.dvc/cache/
-dvc-remote/
+# ── MLflow — runs y artefactos locales ───────────────────────────────────────
+mlruns/
+mlartifacts/
 
-# ── Modelo — gestionado por DVC, no por Git ───────────────────────────────────
+# ── Modelo — gestionado por MLflow, no por Git ────────────────────────────────
 model/weights/
 !model/weights/.gitkeep
 

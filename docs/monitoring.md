@@ -1,41 +1,47 @@
 # Monitorización
 
-## Flujo de métricas
+## Flujo de telemetría
 
 ```mermaid
 graph LR
-    API["API :8000\n/metrics"] -->|scrape cada 15s| PROM["Prometheus\n:9090"]
-    PROM -->|PromQL| GRAF["Grafana\n:3000\ndashboards"]
-    PROM -->|evalúa reglas| ALERT["alerts.yml\nModelNotLoaded\nHighErrorRate\nHighLatency\nDataDrift"]
+    API["API :8000\nOTel SDK"] -->|"OTLP gRPC\n:4317"| COL["OTel Collector"]
+    COL -->|"JSON estructurado"| LOG["stdout\n(CloudWatch / GCP Logging\n/ Datadog Log Mgmt)"]
+    COL -.->|"exporter opcional"| DD["Datadog"]
+    COL -.->|"exporter opcional"| CW["AWS CloudWatch EMF"]
+    COL -.->|"exporter opcional"| GCP["GCP Cloud Monitoring"]
 ```
 
-## Acceso
+El Collector actúa de fan-out: recibe OTLP y puede exportar a cualquier backend SaaS sin cambiar código Python.
+
+## Acceso local
 
 | URL | Servicio |
 |---|---|
-| http://localhost:9090 | Prometheus — explorador de métricas y alertas |
-| http://localhost:3000 | Grafana — dashboards (usuario: `admin`, contraseña: ver `.env`) |
+| http://localhost:5000 | MLflow — tracking UI + Model Registry |
+| http://localhost:55679 | OTel Collector zPages — debug de pipelines y exporters |
+| http://localhost:4317 | OTLP gRPC receiver (uso interno) |
+| http://localhost:4318 | OTLP HTTP receiver (uso interno) |
 
 ---
 
-## Métricas Prometheus
+## Métricas de la API (instrumentos OTel)
 
-Todas las métricas tienen el prefijo `pipeline_`.
+Todas las métricas usan el prefijo `pipeline.` con separador de punto (convención OTel).
 
-| Métrica | Tipo | Etiquetas | Descripción |
+| Métrica | Tipo | Atributos | Descripción |
 |---|---|---|---|
-| `pipeline_model_loaded` | Gauge | — | `1` cuando el modelo está cargado, `0` durante hot-swap o fallo |
-| `pipeline_inference_requests_total` | Counter | `status={ok,error}` | Total de peticiones de inferencia |
-| `pipeline_inference_latency_seconds` | Histogram | — | Latencia end-to-end del endpoint `/infer/` |
-| `pipeline_training_requests_total` | Counter | `status={ok,error}` | Total de peticiones de entrenamiento |
-| `pipeline_training_samples_total` | Counter | — | Total de muestras procesadas con `partial_fit` |
-| `pipeline_data_drift_score` | Gauge | `feature={nombre}` | Score de drift por feature (EMA, rango 0–∞) |
-| `pipeline_version_switches_total` | Counter | `status={ok,error}` | Total de cambios de versión DVC |
-| `pipeline_model_load_duration_seconds` | Histogram | — | Tiempo de DVC pull + joblib reload en cada version switch |
+| `pipeline.model.loaded` | ObservableGauge | — | `1` cuando el modelo está cargado, `0` durante hot-swap o fallo |
+| `pipeline.inference.requests_total` | Counter | `status={ok,error}` | Total de peticiones de inferencia |
+| `pipeline.inference.latency_seconds` | Histogram | `status={ok,error}` | Latencia end-to-end del endpoint `/infer/` |
+| `pipeline.training.requests_total` | Counter | `status={ok,error}` | Total de peticiones de entrenamiento |
+| `pipeline.training.samples_total` | Counter | — | Total de muestras procesadas con `partial_fit` |
+| `pipeline.data.drift_score` | ObservableGauge | `feature={nombre}` | Score de drift por feature (EMA, rango 0–∞) |
+| `pipeline.version.switches_total` | Counter | `status={ok,error}` | Total de cambios de versión |
+| `pipeline.model.load_duration_seconds` | Histogram | — | Tiempo de carga desde MLflow en cada version switch |
 
-### Labels de drift (`feature`)
+### Atributo `feature` del drift score
 
-Las 30 features del dataset breast cancer se usan como labels de Prometheus:
+Las 30 features del dataset breast cancer se usan como atributo `feature`:
 
 ```
 radius_mean    texture_mean    perimeter_mean  area_mean
@@ -49,69 +55,60 @@ smoothness_worst  compactness_worst  concavity_worst  concpts_worst
 symmetry_worst fracdim_worst
 ```
 
-### Consultas útiles en Prometheus
+---
 
-```promql
-# Tasa de inferencias por segundo (últimos 5 min)
-rate(pipeline_inference_requests_total{status="ok"}[5m])
+## Trazas distribuidas
 
-# Tasa de errores (últimos 5 min)
-rate(pipeline_inference_requests_total{status="error"}[5m])
+`FastAPIInstrumentor` inyecta tramos OTel en cada request HTTP automáticamente. Las trazas incluyen:
 
-# Latencia p99 de inferencia
-histogram_quantile(0.99, rate(pipeline_inference_latency_seconds_bucket[5m]))
-
-# Muestras de entrenamiento acumuladas
-pipeline_training_samples_total
-
-# Features con drift alto (> 0.5)
-pipeline_data_drift_score > 0.5
-
-# Features con mayor drift (ordena top 5)
-topk(5, pipeline_data_drift_score)
-
-# Duración del último version switch (percentil 95)
-histogram_quantile(0.95, rate(pipeline_model_load_duration_seconds_bucket[1h]))
-
-# Total de version switches exitosos
-pipeline_version_switches_total{status="ok"}
-```
+- `http.method`, `http.route`, `http.status_code`
+- `service.name` = `pipeline-api` (configurable via `OTEL_SERVICE_NAME`)
+- `service.version` = `IMAGE_TAG` enriquecido por el resource processor del Collector
 
 ---
 
-## Dashboard Grafana
+## Configuración del Collector
 
-El dashboard **PipelineModeling** se provisiona automáticamente al arrancar Grafana.
+El archivo `monitoring/otel-collector/otel-collector.yml` define tres pipelines (metrics, traces, logs) con los mismos receivers y processors:
 
-| Panel | Métrica / Consulta |
+```yaml
+processors:
+  resource:
+    attributes:
+      - key: deployment.environment
+        value: ${env:DEPLOY_ENV:-local}
+        action: upsert
+      - key: service.version
+        value: ${env:IMAGE_TAG:-dev}
+        action: upsert
+```
+
+### Activar exporters SaaS
+
+1. Descomentar el bloque del exporter deseado en `otel-collector.yml`.
+2. Añadir su nombre a la lista `exporters` del pipeline correspondiente.
+3. Definir las variables de entorno en `.env`:
+
+| Backend | Variable requerida |
 |---|---|
-| Inference RPS | `rate(pipeline_inference_requests_total[1m])` |
-| Error rate | Porcentaje de `status="error"` sobre el total |
-| Latencia p50 / p95 / p99 | `histogram_quantile` sobre `inference_latency_seconds` |
-| Training samples (acumulado) | `pipeline_training_samples_total` |
-| Model loaded | `pipeline_model_loaded` |
-| Drift score por feature | `pipeline_data_drift_score{feature=~".*"}` |
-| Version switches | `pipeline_version_switches_total` |
-| Model load duration (DVC pull) | `pipeline_model_load_duration_seconds` |
+| Datadog | `DATADOG_API_KEY`, `DD_SITE` |
+| AWS CloudWatch EMF | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION` |
+| GCP Cloud Monitoring | `GOOGLE_APPLICATION_CREDENTIALS`, `GCP_PROJECT_ID` |
 
-> Si los paneles muestran "No data" al arrancar, espera 15–20 s para el primer scrape de Prometheus.  
-> Verifica que http://localhost:9090/targets muestra `pipeline_api` en estado **UP**.  
-> Los paneles "Version Switches" y "Model Load Duration" necesitan al menos una llamada a `POST /version/switch` para mostrar datos.
+No se necesita modificar código Python en ningún caso.
 
 ---
 
 ## Alertas
 
-Definidas en `monitoring/prometheus/alerts.yml`:
+Sin Prometheus/Grafana, las alertas se configuran en el backend SaaS elegido. Equivalencias recomendadas:
 
-| Alerta | Condición | Durante | Severidad |
-|---|---|---|---|
-| `ModelNotLoaded` | `pipeline_model_loaded == 0` | 1 min | critical |
-| `HighInferenceErrorRate` | tasa de errores > 5 % | 5 min | warning |
-| `HighInferenceLatencyP99` | p99 > 500 ms | 3 min | warning |
-| `DataDriftDetected` | `pipeline_data_drift_score > 0.5` | 5 min | warning |
-
-Ver alertas activas en http://localhost:9090/alerts.
+| Alerta anterior (Prometheus) | Equivalente SaaS |
+|---|---|
+| `ModelNotLoaded` | Alerta cuando `pipeline.model.loaded = 0` durante > 1 min |
+| `HighInferenceErrorRate` | Tasa de `pipeline.inference.requests_total{status="error"}` > 5 % en 5 min |
+| `HighInferenceLatencyP99` | p99 de `pipeline.inference.latency_seconds` > 500 ms en 3 min |
+| `DataDriftDetected` | `pipeline.data.drift_score` > 0.5 en cualquier feature durante 5 min |
 
 ---
 
@@ -124,14 +121,11 @@ El `DriftTracker` singleton recibe actualizaciones de dos orígenes:
 | `POST /train/` | `update_batch(features)` | Inmediatamente después de cada batch |
 | `POST /infer/` | `update_single(feature_vec)` | Después de cada 50 peticiones de inferencia |
 
-La actualización EMA (α = 0.05) actualiza la referencia de forma suave. Un desplazamiento brusco como el que genera el seeder (> 2σ) eleva `pipeline_data_drift_score` a valores > 0.5 y dispara la alerta `DataDriftDetected`.
+La actualización EMA (α = 0.05) actualiza la referencia de forma suave. Un desplazamiento brusco como el que genera el seeder (> 2σ) eleva `pipeline.data.drift_score` a valores > 0.5.
 
 ---
 
 ## Simular drift manualmente
-
-El seeder activa el drift automáticamente a los `DRIFT_ONSET_AFTER_S` segundos (por defecto 120).  
-Para forzarlo de inmediato, cierra la ventana del seeder y ábrela con:
 
 ```powershell
 $env:API_URL             = "http://localhost:8000"
@@ -140,5 +134,16 @@ $env:DRIFT_MAGNITUDE     = "3.0"
 .venv\Scripts\python services\seeder\seeder.py
 ```
 
-En unos segundos, `pipeline_data_drift_score` superará 0.5 y se disparará la alerta.  
-Las features con mayor drift serán `radius_mean`, `area_mean` y `concavity_worst` (las más discriminativas del dataset breast cancer).
+En unos segundos, `pipeline.data.drift_score` superará 0.5 en `radius_mean`, `area_mean` y `concavity_worst`.
+
+---
+
+## Verificar telemetría sin SaaS
+
+El exporter `logging` del Collector siempre está activo y vuelca JSON estructurado a stdout:
+
+```bash
+docker compose logs otel-collector --follow
+```
+
+Cada línea de log es un `ResourceMetrics` o `ResourceSpans` completo, ingestable sin agente por CloudWatch Log Insights, GCP Logging y Datadog Log Management.

@@ -1,10 +1,9 @@
-# Git history is bind-mounted at runtime — exclude from build context
+# Git history — not needed inside image
 .git/
 
-# DVC remote and cache are mounted as volumes at runtime
+# DVC legacy directories (excluded for safety)
 dvc-remote/
-.dvc/cache/
-.dvc/tmp/
+.dvc/
 
 # Model artifacts — served via Docker volume, not baked into image
 model/weights/model.pkl
