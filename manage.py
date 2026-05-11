@@ -29,14 +29,15 @@ from typing import Callable, NoReturn
 ROOT   = Path(__file__).parent.resolve()
 VENV   = ROOT / ".venv"
 IS_WIN = platform.system() == "Windows"
-_BIN   = VENV / ("Scripts" if IS_WIN else "bin")
-
-PYTHON    = _BIN / "python"
-PIP       = _BIN / "pip"
-PYTEST    = _BIN / "pytest"
-UVICORN   = _BIN / "uvicorn"
-STREAMLIT = _BIN / "streamlit"
 PIDS_FILE = ROOT / ".pids.json"
+_BIN   = VENV / ("Scripts" if IS_WIN else "bin")
+_EXE = ".exe" if IS_WIN else ""
+
+PYTHON = _BIN / f"python{_EXE}"
+PIP = _BIN / f"pip{_EXE}"
+PYTEST = _BIN / f"pytest{_EXE}"
+UVICORN = _BIN / f"uvicorn{_EXE}"
+STREAMLIT = _BIN / f"streamlit{_EXE}"
 
 REQUIREMENTS = [
     "services/api/requirements.txt",
@@ -46,14 +47,13 @@ REQUIREMENTS = [
     "tests/requirements.txt",
 ]
 
-# service name → container name
+# service name --> container name
 _DOCKER = {
     "mlflow":         "pipeline_mlflow",
     "otel-collector": "pipeline_otel_collector",
 }
 
 # ── Output helpers ────────────────────────────────────────────────────────────
-
 def _header(msg: str) -> None:   print(f"\n  {msg}")
 def _step(msg: str)   -> None:   print(f"  >>     {msg}")
 def _ok(msg: str)     -> None:   print(f"  [OK]   {msg}")
@@ -63,7 +63,6 @@ def _fail(msg: str)   -> NoReturn:
     sys.exit(1)
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
-
 def _port_in_use(port: int) -> bool:
     import socket
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -143,7 +142,6 @@ def _require_venv() -> None:
         _fail(".venv no encontrado. Ejecuta primero: python manage.py setup")
 
 # ── Commands ──────────────────────────────────────────────────────────────────
-
 def cmd_setup(_: argparse.Namespace) -> None:
     _header("PipelineModeling — setup")
 
@@ -183,7 +181,13 @@ def cmd_setup(_: argparse.Namespace) -> None:
     model_pkl = ROOT / "model/weights/model.pkl"
     if not model_pkl.exists():
         _step("Entrenando modelo inicial...")
-        subprocess.run([str(PYTHON), str(ROOT / "model/train.py")], check=True, cwd=ROOT)
+        setup_env = {**os.environ, "MLFLOW_TRACKING_URI": "file:./mlruns"}
+        subprocess.run(
+            [str(PYTHON), str(ROOT / "model/train.py")],
+            check=True,
+            cwd=ROOT,
+            env=setup_env,
+        )
         _ok("Modelo inicial entrenado")
     else:
         _ok("model.pkl ya existe")
@@ -374,7 +378,6 @@ def cmd_test(args: argparse.Namespace) -> None:
     _ok("Todos los tests pasaron.")
 
 # ── Simulate scenarios ────────────────────────────────────────────────────────
-
 _SAMPLE_NORMAL = [
     17.99, 10.38, 122.80, 1001.0, 0.1184, 0.2776, 0.3001, 0.1471, 0.2419, 0.07871,
      1.095,  0.9053,  8.589,  153.4, 0.006399, 0.04904, 0.05373, 0.01587, 0.03003, 0.006193,
@@ -491,7 +494,6 @@ def cmd_simulate(args: argparse.Namespace) -> None:
     fn()
 
 # ── Parser and dispatch ───────────────────────────────────────────────────────
-
 _COMMANDS: dict[str, Callable[[argparse.Namespace], None]] = {
     "setup":    cmd_setup,
     "start":    cmd_start,

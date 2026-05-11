@@ -5,7 +5,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class VersionSwitchRequest(BaseModel):
     model_config = ConfigDict(
-        json_schema_extra={"example": {"model_ref": "Production"}}
+        protected_namespaces=(),
+        json_schema_extra={"example": {"model_ref": "Production"}},
     )
 
     model_ref: str = Field(

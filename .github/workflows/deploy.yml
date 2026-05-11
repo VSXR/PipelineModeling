@@ -3,7 +3,7 @@ name: Build & Deploy
 on:
   push:
     tags:
-      - "v*"          # triggered by retrain.yml tags on main
+      - "v*"          # triggered by retrain.yml tags on master
   workflow_dispatch:  # manual trigger for hotfixes
 
 env:

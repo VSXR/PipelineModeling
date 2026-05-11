@@ -6,7 +6,7 @@ El sistema utiliza **MLflow Model Registry** como fuente de verdad para artefact
 
 ## Flujo automatizado con GitHub Actions
 
-Un push a `model/train.py` o `model/requirements.txt` en `main` dispara el pipeline completo:
+Un push a `model/train.py` o `model/requirements.txt` en `master` dispara el pipeline completo:
 
 ```mermaid
 flowchart TD
@@ -52,7 +52,7 @@ Get-Content model/metrics.json | ConvertFrom-Json
 # 4. Commitear y publicar (dispara retrain.yml automáticamente)
 git add model/train.py model/metrics.json
 git commit -m "train: ajuste de hiperparámetros"
-git push origin main
+git push origin master
 ```
 
 ---
@@ -147,7 +147,7 @@ for version in ["1", "2"]:
 ## Consultar versiones publicadas
 
 ```powershell
-# Tags Git (cada reentrenamiento en main crea un tag v{timestamp})
+# Tags Git (cada reentrenamiento en master crea un tag v{timestamp})
 git tag -l "v*"
 git ls-remote --tags origin
 

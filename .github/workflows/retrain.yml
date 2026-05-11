@@ -83,7 +83,7 @@ jobs:
             model/plots/confusion_matrix.csv
           retention-days: 90
 
-      - name: Tag release (main branch only)
+      - name: Tag release (master branch only)
         if: github.ref == 'refs/heads/master'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
