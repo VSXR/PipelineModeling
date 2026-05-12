@@ -24,8 +24,7 @@ import urllib.request
 from pathlib import Path
 from typing import Callable, NoReturn
 
-# ── Constants ─────────────────────────────────────────────────────────────────
-
+# Constants
 ROOT   = Path(__file__).parent.resolve()
 VENV   = ROOT / ".venv"
 IS_WIN = platform.system() == "Windows"
@@ -53,7 +52,7 @@ _DOCKER = {
     "otel-collector": "pipeline_otel_collector",
 }
 
-# ── Output helpers ────────────────────────────────────────────────────────────
+# Output helpers
 def _header(msg: str) -> None:   print(f"\n  {msg}")
 def _step(msg: str)   -> None:   print(f"  >>     {msg}")
 def _ok(msg: str)     -> None:   print(f"  [OK]   {msg}")
@@ -62,7 +61,7 @@ def _fail(msg: str)   -> NoReturn:
     print(f"\n  [FAIL] {msg}\n", file=sys.stderr)
     sys.exit(1)
 
-# ── Utilities ─────────────────────────────────────────────────────────────────
+# Utilities
 def _port_in_use(port: int) -> bool:
     import socket
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -71,7 +70,9 @@ def _port_in_use(port: int) -> bool:
 
 def _api_healthy(timeout: float = 2.0) -> bool:
     try:
-        with urllib.request.urlopen("http://127.0.0.1:8000/health", timeout=timeout) as r:
+        with urllib.request.urlopen(
+            "http://127.0.0.1:8000/health", timeout=timeout
+        ) as r:
             return r.status == 200
     except Exception:
         return False
@@ -127,7 +128,9 @@ def _run_bg(
 ) -> int:
     """Spawn a process detached from the current terminal; return its PID."""
     merged = {**os.environ, **(env or {})}
-    kwargs: dict = dict(args=cmd, cwd=str(cwd or ROOT), env=merged, stdin=subprocess.DEVNULL)
+    kwargs: dict = dict(
+        args=cmd, cwd=str(cwd or ROOT), env=merged, stdin=subprocess.DEVNULL
+    )
     if IS_WIN:
         kwargs["creationflags"] = subprocess.CREATE_NEW_CONSOLE
     else:
@@ -141,7 +144,8 @@ def _require_venv() -> None:
     if not VENV.exists() or not PYTHON.exists():
         _fail(".venv no encontrado. Ejecuta primero: python manage.py setup")
 
-# ── Commands ──────────────────────────────────────────────────────────────────
+
+# Commands
 def cmd_setup(_: argparse.Namespace) -> None:
     _header("PipelineModeling — setup")
 
@@ -215,7 +219,9 @@ def cmd_start(_: argparse.Namespace) -> None:
     model_pkl = ROOT / "model/weights/model.pkl"
     if not model_pkl.exists():
         _step("Entrenando modelo inicial...")
-        subprocess.run([str(PYTHON), str(ROOT / "model/train.py")], check=True, cwd=ROOT)
+        subprocess.run(
+            [str(PYTHON), str(ROOT / "model/train.py")], check=True, cwd=ROOT
+        )
         _ok("Modelo inicial entrenado")
 
     dotenv = _load_dotenv()
@@ -224,10 +230,12 @@ def cmd_start(_: argparse.Namespace) -> None:
     api_pid = _run_bg(
         [str(UVICORN), "main:app", "--reload", "--port", "8000", "--log-level", "info"],
         env={
-            "MODEL_PATH":               str(ROOT / "model/weights/model.pkl"),
-            "MLFLOW_TRACKING_URI":      dotenv.get("MLFLOW_TRACKING_URI", "http://localhost:5000"),
-            "MLFLOW_MODEL_NAME":        dotenv.get("MLFLOW_MODEL_NAME",   "pipeline-model"),
-            "ENABLE_DEBUG_ENDPOINTS":   "true",
+            "MODEL_PATH": str(ROOT / "model/weights/model.pkl"),
+            "MLFLOW_TRACKING_URI": dotenv.get(
+                "MLFLOW_TRACKING_URI", "http://localhost:5000"
+            ),
+            "MLFLOW_MODEL_NAME": dotenv.get("MLFLOW_MODEL_NAME", "pipeline-model"),
+            "ENABLE_DEBUG_ENDPOINTS": "true",
         },
         cwd=ROOT / "services/api",
     )
@@ -244,10 +252,17 @@ def cmd_start(_: argparse.Namespace) -> None:
 
     _step("Arrancando Frontend...")
     frontend_pid = _run_bg(
-        [str(STREAMLIT), "run", str(ROOT / "services/frontend/app.py"),
-         "--server.port", "8501", "--server.headless", "true"],
+        [
+            str(STREAMLIT),
+            "run",
+            str(ROOT / "services/frontend/app.py"),
+            "--server.port",
+            "8501",
+            "--server.headless",
+            "true",
+        ],
         env={
-            "API_URL":    "http://localhost:8000",
+            "API_URL": "http://localhost:8000",
             "MLFLOW_URL": dotenv.get("MLFLOW_TRACKING_URI", "http://localhost:5000"),
         },
     )
@@ -256,13 +271,13 @@ def cmd_start(_: argparse.Namespace) -> None:
     seeder_pid = _run_bg(
         [str(PYTHON), str(ROOT / "services/seeder/seeder.py")],
         env={
-            "API_URL":               "http://localhost:8000",
-            "REQUESTS_PER_SECOND":   dotenv.get("REQUESTS_PER_SECOND",   "20"),
+            "API_URL": "http://localhost:8000",
+            "REQUESTS_PER_SECOND": dotenv.get("REQUESTS_PER_SECOND", "20"),
             "INFERENCE_CONCURRENCY": dotenv.get("INFERENCE_CONCURRENCY", "10"),
-            "TRAINING_INTERVAL_S":   dotenv.get("TRAINING_INTERVAL_S",   "30"),
-            "TRAINING_BATCH_SIZE":   dotenv.get("TRAINING_BATCH_SIZE",   "50"),
-            "DRIFT_ONSET_AFTER_S":   dotenv.get("DRIFT_ONSET_AFTER_S",   "120"),
-            "DRIFT_MAGNITUDE":       dotenv.get("DRIFT_MAGNITUDE",        "2.0"),
+            "TRAINING_INTERVAL_S": dotenv.get("TRAINING_INTERVAL_S", "30"),
+            "TRAINING_BATCH_SIZE": dotenv.get("TRAINING_BATCH_SIZE", "50"),
+            "DRIFT_ONSET_AFTER_S": dotenv.get("DRIFT_ONSET_AFTER_S", "120"),
+            "DRIFT_MAGNITUDE": dotenv.get("DRIFT_MAGNITUDE", "2.0"),
         },
     )
 
@@ -337,8 +352,10 @@ def cmd_status(_: argparse.Namespace) -> None:
         try:
             with urllib.request.urlopen("http://127.0.0.1:8000/health", timeout=3) as r:
                 body = json.loads(r.read())
-            print(f"  API Health     [OK]  model_loaded={body.get('model_loaded')}  "
-                  f"version={body.get('model_version')}")
+            print(
+                f"  API Health     [OK]  model_loaded={body.get('model_loaded')}  "
+                f"version={body.get('model_version')}"
+            )
         except Exception:
             print("  API Health     [OK]")
     else:
@@ -348,7 +365,8 @@ def cmd_status(_: argparse.Namespace) -> None:
     for svc, container in _DOCKER.items():
         r = subprocess.run(
             ["docker", "inspect", "--format={{.State.Status}}", container],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         state = r.stdout.strip() if r.returncode == 0 else "stopped"
         print(f"  {svc:<22} {'[RUNNING]' if state == 'running' else '[STOPPED]'}")
@@ -377,7 +395,7 @@ def cmd_test(args: argparse.Namespace) -> None:
         _fail(f"Algunos tests fallaron (exit code {result.returncode}).")
     _ok("Todos los tests pasaron.")
 
-# ── Simulate scenarios ────────────────────────────────────────────────────────
+# Simulate scenarios
 _SAMPLE_NORMAL = [
     17.99, 10.38, 122.80, 1001.0, 0.1184, 0.2776, 0.3001, 0.1471, 0.2419, 0.07871,
      1.095,  0.9053,  8.589,  153.4, 0.006399, 0.04904, 0.05373, 0.01587, 0.03003, 0.006193,
@@ -388,9 +406,11 @@ _SAMPLE_DRIFTED = [v * 10.0 for v in _SAMPLE_NORMAL]
 
 def _post(path: str, body: dict, base: str = "http://127.0.0.1:8000") -> int:
     data = json.dumps(body).encode()
-    req  = urllib.request.Request(
-        f"{base}{path}", data=data,
-        headers={"Content-Type": "application/json"}, method="POST",
+    req = urllib.request.Request(
+        f"{base}{path}",
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
     )
     try:
         with urllib.request.urlopen(req, timeout=5) as r:
@@ -420,8 +440,10 @@ def _sim_version_fail() -> None:
     print("  Escenario : VersionSwitchFailed — model_ref inexistente en MLflow")
     print()
     status = _post("/version/switch", {"model_ref": "nonexistent-simulate-999"})
-    _ok(f"Peticion enviada (HTTP {status}). "
-        f"Metrica pipeline.version_switch.error incrementada.")
+    _ok(
+        f"Peticion enviada (HTTP {status}). "
+        f"Metrica pipeline.version_switch.error incrementada."
+    )
     print("  Observa  : docker compose logs otel-collector --follow")
 
 
@@ -444,7 +466,9 @@ def _sim_training_errors() -> None:
 
 
 def _sim_chaos() -> None:
-    print("  Escenario : InferenceErrors — chaos 20% (requiere ENABLE_DEBUG_ENDPOINTS=true)")
+    print(
+        "  Escenario : InferenceErrors — chaos 20% (requiere ENABLE_DEBUG_ENDPOINTS=true)"
+    )
     print()
     r = _post("/debug/chaos", {"inference_error_rate": 0.20})
     if r == 0:
@@ -460,7 +484,11 @@ def _sim_chaos() -> None:
         iteration += 1
         for _ in range(30):
             _post("/infer/", {"features": _SAMPLE_NORMAL})
-        print(f"\r  iter={iteration} | faltan {int(deadline - time.time())}s", end="", flush=True)
+        print(
+            f"\r  iter={iteration} | faltan {int(deadline - time.time())}s",
+            end="",
+            flush=True,
+        )
         time.sleep(10)
     print()
 
@@ -493,13 +521,14 @@ def cmd_simulate(args: argparse.Namespace) -> None:
     print(f"\n  -- {args.scenario} " + "-" * (40 - len(args.scenario)))
     fn()
 
-# ── Parser and dispatch ───────────────────────────────────────────────────────
+
+# Parser and dispatch
 _COMMANDS: dict[str, Callable[[argparse.Namespace], None]] = {
-    "setup":    cmd_setup,
-    "start":    cmd_start,
-    "stop":     cmd_stop,
-    "status":   cmd_status,
-    "test":     cmd_test,
+    "setup": cmd_setup,
+    "start": cmd_start,
+    "stop": cmd_stop,
+    "status": cmd_status,
+    "test": cmd_test,
     "simulate": cmd_simulate,
 }
 
@@ -535,7 +564,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     return p
 
-
+# Entry point del CLI program
 if __name__ == "__main__":
     args = _build_parser().parse_args()
     _COMMANDS[args.command](args)

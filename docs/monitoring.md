@@ -5,19 +5,23 @@
 ```mermaid
 graph LR
     API["API :8000\nOTel SDK"] -->|"OTLP gRPC\n:4317"| COL["OTel Collector"]
-    COL -->|"JSON estructurado"| LOG["stdout\n(CloudWatch / GCP Logging\n/ Datadog Log Mgmt)"]
+    COL -->|"Prometheus exposition\n:9464"| PROM["Prometheus :9090"]
+    PROM -->|"HTTP query"| GRAF["Grafana :3000"]
+    COL -->|"JSON estructurado"| LOG["stdout\n(debug)"]
     COL -.->|"exporter opcional"| DD["Datadog"]
     COL -.->|"exporter opcional"| CW["AWS CloudWatch EMF"]
     COL -.->|"exporter opcional"| GCP["GCP Cloud Monitoring"]
 ```
 
-El Collector actúa de fan-out: recibe OTLP y puede exportar a cualquier backend SaaS sin cambiar código Python.
+El Collector actúa de puente: recibe OTLP Push desde la API, expone métricas en formato Prometheus Pull y conserva logging para depuración o exportación SaaS.
 
 ## Acceso local
 
 | URL | Servicio |
 |---|---|
+| http://localhost:3000 | Grafana — dashboards y datasource provisionados |
 | http://localhost:5000 | MLflow — tracking UI + Model Registry |
+| http://localhost:9090 | Prometheus — consultas TSDB y estado del scrape |
 | http://localhost:55679 | OTel Collector zPages — debug de pipelines y exporters |
 | http://localhost:4317 | OTLP gRPC receiver (uso interno) |
 | http://localhost:4318 | OTLP HTTP receiver (uso interno) |
@@ -67,7 +71,7 @@ symmetry_worst fracdim_worst
 
 ---
 
-## Configuración del Collector
+## Configuración del Collector, más un exporter Prometheus para el pipeline de métricas
 
 El archivo `monitoring/otel-collector/otel-collector.yml` define tres pipelines (metrics, traces, logs) con los mismos receivers y processors:
 
@@ -81,6 +85,12 @@ processors:
       - key: service.version
         value: ${env:IMAGE_TAG:-dev}
         action: upsert
+
+exporters:
+  prometheus:
+    endpoint: 0.0.0.0:9464
+    resource_to_telemetry_conversion:
+      enabled: true
 ```
 
 ### Activar exporters SaaS
@@ -95,14 +105,14 @@ processors:
 | AWS CloudWatch EMF | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION` |
 | GCP Cloud Monitoring | `GOOGLE_APPLICATION_CREDENTIALS`, `GCP_PROJECT_ID` |
 
-No se necesita modificar código Python en ningún caso.
+Con Prometheus y Grafana locales, las alertas pueden definirse en Grafana o en reglas de Prometheus. Base recomendada:
 
----
-
-## Alertas
-
-Sin Prometheus/Grafana, las alertas se configuran en el backend SaaS elegido. Equivalencias recomendadas:
-
+| Alerta | Regla sugerida |
+|---|---|
+| `ModelNotLoaded` | `pipeline_model_loaded == 0` durante > 1 min |
+| `HighInferenceErrorRate` | `sum(rate(pipeline_inference_requests_total{status="error"}[5m])) / sum(rate(pipeline_inference_requests_total[5m])) > 0.05` |
+| `HighInferenceLatencyP95` | `histogram_quantile(0.95, sum(rate(pipeline_inference_latency_seconds_bucket[5m])) by (le, status)) > 0.5` |
+| `DataDriftDetected` | `pipeline_data_drift_score > 0.5` para
 | Alerta anterior (Prometheus) | Equivalente SaaS |
 |---|---|
 | `ModelNotLoaded` | Alerta cuando `pipeline.model.loaded = 0` durante > 1 min |
@@ -134,7 +144,7 @@ $env:DRIFT_MAGNITUDE     = "3.0"
 .venv\Scripts\python services\seeder\seeder.py
 ```
 
-En unos segundos, `pipeline.data.drift_score` superará 0.5 en `radius_mean`, `area_mean` y `concavity_worst`.
+En unos segundos, `pipeline.data.driftgue activo y vuelca JSON estructurado a stdout, mientras que el exporter `prometheus` publica el scrape endpoint en `:9464``concavity_worst`.
 
 ---
 

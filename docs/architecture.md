@@ -2,19 +2,21 @@
 
 ## Visión general
 
-PipelineModeling implementa un pipeline de ML continuo con seis componentes siguiendo la metodología CRISP-DM. La observabilidad es vendor-neutral (OpenTelemetry) y el versionado de artefactos se gestiona mediante MLflow Model Registry.
+PipelineModeling implementa un pipeline de ML continuo con seis componentes siguiendo la metodología CRISP-DM. La ejecución es híbrida: la API y el frontend corren en el host local, mientras que MLflow, OpenTelemetry Collector, Prometheus y Grafana viven en Docker Compose. La observabilidad sigue el patrón OTLP Push -> Collector -> Prometheus Pull -> Grafana Query, y el versionado de artefactos se gestiona mediante MLflow Model Registry.
 
 ```mermaid
 graph TB
-    subgraph local["Modo local (.venv) / Docker"]
-        FE["Frontend\nStreamlit :8501\n3 modos: Form, CSV, JSON"]
-        SE["Seeder\nasync — infer + train + drift"]
-        API["API\nFastAPI :8000\n/infer/ · /train/ · /version/\n/health"]
+    subgraph host["Host local"]
+        FE["Frontend\nStreamlit :8501\nDeclarative UI + immutable state"]
+        API["API\nFastAPI :8000\n/infer/ · /train/ · /version/ · /health"]
+        SE["Seeder\nasync traffic + drift"]
     end
 
     subgraph docker["Docker Compose"]
         MLFLOW["MLflow\n:5000\nModel Registry + Tracking"]
-        OTEL["OTel Collector\n:4317 gRPC · :4318 HTTP\n:55679 zPages"]
+        OTEL["OTel Collector\n:4317 gRPC · :4318 HTTP\n:55679 zPages · :9464 Prometheus"]
+        PROM["Prometheus\n:9090\nPull scrape"]
+        GRAF["Grafana\n:3000\nDashboards + datasource provisioning"]
     end
 
     subgraph ci["GitHub Actions"]
@@ -22,21 +24,25 @@ graph TB
         CD["deploy.yml\nbuild → push GHCR → smoke test"]
     end
 
-    FE  -->|HTTP| API
-    SE  -->|HTTP inference + train| API
-    API -->|OTLP gRPC| OTEL
-    API -->|mlflow.sklearn.load_model| MLFLOW
-    CI  -->|mlflow.sklearn.log_model| MLFLOW
-    CI  -->|git tag v*| CD
+    FE -->|HTTP| API
+    SE -->|HTTP inference + train| API
+    API -->|OTLP Push| OTEL
+    OTEL -->|Prometheus Pull| PROM
+    PROM -->|HTTP Query| GRAF
+    API -->|MLflow client| MLFLOW
+    CI -->|mlflow.sklearn.log_model| MLFLOW
+    CI -->|git tag v*| CD
 ```
 
 ---
 
-## Servicios
-
-| Servicio | Puerto | Runtime | Descripción |
-|---|---|---|---|
-| **API** | 8000 | `.venv` / Docker | FastAPI: inferencia, entrenamiento incremental, versionado |
+## Servicios| FastAPI: inferencia, entrenamiento incremental, versionado |
+| **Frontend** | 8501 | `.venv` | Streamlit: panel declarativo, métricas dinámicas y gráficos continuos |
+| **Seeder** | — | `.venv` | Generador de tráfico sintético y drift simulado |
+| **MLflow** | 5000 | Docker | Model Registry (SQLite backend) + servidor de tracking |
+| **OTel Collector** | 4317 / 4318 / 55679 / 9464 | Docker | OTLP ingest, resource mapping y exportador Prometheus |
+| **Prometheus** | 9090 | Docker | Pull scrape del Collector y storage TSDB local |
+| **Grafana** | 3000 | Docker | Dashboards y datasource provisionados por volumen
 | **Frontend** | 8501 | `.venv` / Docker | Streamlit: Form / CSV upload / JSON upload |
 | **Seeder** | — | `.venv` / Docker | Generador de tráfico sintético y drift simulado |
 | **MLflow** | 5000 | Docker | Model Registry (SQLite backend) + servidor de tracking |
@@ -76,8 +82,18 @@ PipelineModeling/
 │   │       └── versioning.py     # VersionSwitchRequest (model_ref), VersionCurrentResponse
 │   ├── frontend/app.py           # Streamlit (3 tabs: inferencia, entrenamiento, versiones)
 │   ├── seeder/seeder.py          # 3 corutinas async: infer, train, drift
-│   └── wrapper/client.py         # PipelineClient (async context manager)
-├── monitoring/
+│   ├── otel-collector/
+│   │   └── otel-collector.yml    # OTLP receivers + processors + logging + Prometheus exporter
+│   ├── prometheus/
+│   │   └── prometheus.yml        # scrape config against otel-collector:9464
+│   └── grafana/
+│       ├── provisioning/
+│       │   ├── datasources/
+│       │   │   └── datasource.yml
+│       │   └── dashboards/
+│       │       └── dashboards.yml
+│       └── dashboards/
+│           └── pipeline-overview.json
 │   └── otel-collector/
 │       └── otel-collector.yml    # OTLP receivers + processors + exporters (Datadog/CW/GCP)
 ├── .github/

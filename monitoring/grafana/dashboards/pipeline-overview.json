@@ -1,0 +1,79 @@
+{
+  "uid": "pipeline-overview",
+  "title": "PipelineModeling Overview",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "15s",
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Inference requests rate",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(pipeline_inference_requests_total[5m])) by (status)"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Inference latency p95",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum(rate(pipeline_inference_latency_seconds_bucket[5m])) by (le, status))"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Drift score by feature",
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pipeline_data_drift_score"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Training throughput",
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(pipeline_training_samples_total[5m]))"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Model loaded",
+      "gridPos": { "x": 0, "y": 16, "w": 8, "h": 6 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pipeline_model_loaded"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Version switches",
+      "gridPos": { "x": 8, "y": 16, "w": 16, "h": 6 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(pipeline_version_switches_total[5m])) by (status)"
+        }
+      ]
+    }
+  ]
+}

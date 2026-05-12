@@ -32,6 +32,10 @@ processors:
 exporters:
   logging:
     verbosity: normal
+  prometheus:
+    endpoint: 0.0.0.0:9464
+    resource_to_telemetry_conversion:
+      enabled: true
 
   # ── Datadog (uncomment + set DATADOG_API_KEY in .env) ─────────────────────
   # datadog:
@@ -63,7 +67,7 @@ service:
     metrics:
       receivers:  [otlp]
       processors: [memory_limiter, resource, batch]
-      exporters:  [logging]
+      exporters:  [logging, prometheus]
       # Production: exporters: [logging, datadog]
     traces:
       receivers:  [otlp]

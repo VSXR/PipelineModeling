@@ -1,6 +1,6 @@
 # PipelineModeling
 
-Sistema de aprendizaje continuo para clasificación binaria. Implementa el ciclo completo de CRISP-DM sobre el dataset **Breast Cancer Wisconsin**: inferencia en tiempo real, reentrenamiento incremental (`partial_fit`), versionado de artefactos con MLflow Model Registry, telemetría con OpenTelemetry y CI/CD con GitHub Actions.
+Sistema de aprendizaje continuo para clasificación binaria. Implementa el ciclo completo de CRISP-DM sobre el dataset **Breast Cancer Wisconsin**: inferencia en tiempo real, reentrenamiento incremental (`partial_fit`), versionado de artefactos con MLflow Model Registry, telemetría con OpenTelemetry, observabilidad local con Prometheus + Grafana y CI/CD con GitHub Actions.
 
 ---
 
@@ -19,9 +19,11 @@ python manage.py stop
 
 | URL | Servicio |
 |---|---|
-| http://localhost:8501 | Frontend — panel de control |
+| http://localhost:8501 | Frontend — panel declarativo |
 | http://localhost:8000/docs | API — Swagger UI |
+| http://localhost:3000 | Grafana — dashboards |
 | http://localhost:5000 | MLflow — Model Registry |
+| http://localhost:9090 | Prometheus — consultas |
 | http://localhost:55679 | OTel Collector — zPages |
 
 ---
@@ -73,15 +75,19 @@ python manage.py setup                                          Primera configur
 python manage.py start                                          Arrancar todo el workspace
 python manage.py stop                                           Parar todos los servicios
 python manage.py status                                         Estado de los servicios
-python manage.py test                                           Suite completa de tests
-python manage.py test --unit                                    Solo tests unitarios (sin API)
-python manage.py test --integration                             Solo tests de integración (requiere API)
+python manage.py test                                           Suite completa de tests (112 tests)
+python manage.py test --unit                                    Solo tests unitarios (95 tests, sin API)
+python manage.py test --integration                             Solo tests de integración (requiere API corriendo)
 python manage.py simulate --scenario drift                      Simular deriva de datos (7 min)
 python manage.py simulate --scenario version-fail               Simular fallo de cambio de versión
 python manage.py simulate --scenario training-errors            Simular errores de entrenamiento (7 min)
 python manage.py simulate --scenario chaos                      Inyectar errores en inferencias (4 min)
 python manage.py simulate --scenario all                        Ejecutar todos los escenarios
 ```
+
+**Suite de Tests**:
+- **95 unit tests**: Métricas OTel, DriftTracker, ModelManager, API endpoints, validación de schemas
+- **17 integration tests**: Observabilidad completa (Collector → Prometheus → Grafana)
 
 ---
 
@@ -96,7 +102,8 @@ python manage.py simulate --scenario all                        Ejecutar todos l
 | [docs/api.md](docs/api.md) | Referencia completa de endpoints con ejemplos de 30 features |
 | [docs/versioning.md](docs/versioning.md) | Flujo MLflow + GitHub Actions, hot-swap, rollback |
 | [docs/monitoring.md](docs/monitoring.md) | Métricas OTel, OTel Collector, exportadores SaaS |
-| [docs/testing.md](docs/testing.md) | Suite de tests, cómo ejecutarlos, cómo añadir nuevos |
+| [docs/testing.md](docs/testing.md) | Suite de tests unitarios e integración (95 tests) |
+| [docs/testing-observability.md](docs/testing-observability.md) | Tests de observabilidad (17 tests Prometheus/Grafana) |
 | [docs/development.md](docs/development.md) | Flujo de desarrollo, Docker Compose, solución de problemas |
 
 ---
@@ -121,12 +128,19 @@ PipelineModeling/
 │   │   │   └── model_manager.py  # Singleton; asyncio locks; hot-swap MLflow
 │   │   ├── routers/              # inference · training · versioning
 │   │   └── schemas/              # InferenceRequest/Response, TrainingRequest/Response
-│   ├── frontend/app.py           # Streamlit (3 tabs: inferencia, entrenamiento, versiones)
+│   ├── frontend/
+│   │   ├── app.py                # Punto de entrada Streamlit (wrapper limpio)
+│   │   ├── runtime.py            # UI declarativa Streamlit (3 tabs)
+│   │   ├── controller.py         # Lógica de negocio (orquestación)
+│   │   ├── network.py            # Límite de red (async/sync bridge)
+│   │   └── domain.py             # Modelo de estado inmutable
 │   ├── seeder/seeder.py          # 3 corutinas async: infer, train, drift
 │   └── wrapper/client.py         # PipelineClient (async context manager)
 ├── monitoring/
-│   └── otel-collector/           # otel-collector.yml (OTLP receivers + stdout/SaaS exporters)
+│   ├── otel-collector/           # otel-collector.yml (OTLP receivers + Prometheus exporter)
+│   ├── prometheus/               # prometheus.yml (scrape config)
+│   └── grafana/                  # Provisioning datasources + dashboards JSON
 ├── .github/workflows/            # retrain.yml · deploy.yml (CI/CD)
-├── tests/                        # pytest: unit (no infra) + integration (requiere API)
+├── tests/                        # pytest: 95 unit + 17 observability integration tests
 └── docs/                         # Documentación completa
 ```

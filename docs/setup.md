@@ -8,7 +8,7 @@
 | Git | 2.x | `git --version` |
 | Docker Desktop | 4.x | `docker compose version` |
 
-> Docker ejecuta MLflow (registro de modelos) y el OTel Collector (telemetría). La API, el frontend y el seeder corren en local con `.venv`.
+> Docker ejecuta MLflow (registro de modelos), el OTel Collector (telemetría), Prometheus (scrape) y Grafana (dashboards). La API, el frontend y el seeder corren en local con `.venv`.
 
 ---
 
@@ -38,6 +38,8 @@ Todas están en `.env` (generado desde `.env.example`).
 | `MLFLOW_MODEL_NAME` | `pipeline-model` | Nombre del modelo en el registry |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | _(vacío = no-op)_ | Endpoint gRPC del OTel Collector |
 | `OTEL_SERVICE_NAME` | `pipeline-api` | Nombre del servicio en trazas y métricas |
+| `GRAFANA_URL` | `http://localhost:3000` | URL usada por el frontend para acceder a Grafana |
+| `PROMETHEUS_URL` | `http://localhost:9090` | URL usada por el frontend para acceder a Prometheus |
 | `REQUESTS_PER_SECOND` | `20` | Tasa de inferencia del seeder |
 | `INFERENCE_CONCURRENCY` | `10` | Peticiones HTTP en vuelo simultáneas |
 | `TRAINING_INTERVAL_S` | `30` | Segundos entre batches de entrenamiento |
@@ -84,8 +86,8 @@ Copy-Item .env.example .env
 ---
 
 ## Iniciar el stack completo
-
-```powershell
+ + Prometheus + Grafana
+docker compose up mlflow otel-collector prometheus grafana
 # Docker: MLflow + OTel Collector
 docker compose up mlflow otel-collector -d
 
@@ -107,6 +109,8 @@ docker compose up -d
 |---|---|
 | API health | `Invoke-RestMethod http://localhost:8000/health` |
 | MLflow UI | Abrir http://localhost:5000 en el navegador |
+| Prometheus UI | Abrir http://localhost:9090 en el navegador |
+| Grafana UI | Abrir http://localhost:3000 en el navegador |
 | OTel Collector zPages | Abrir http://localhost:55679 en el navegador |
 | Logs del Collector | `docker compose logs otel-collector --follow` |
 

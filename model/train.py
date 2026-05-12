@@ -20,7 +20,6 @@ from pathlib import Path
 import joblib
 import mlflow  # type: ignore[import]
 import mlflow.sklearn  # type: ignore[import]
-import numpy as np
 from sklearn.datasets import load_breast_cancer
 from sklearn.linear_model import SGDClassifier
 from sklearn.metrics import (
@@ -43,6 +42,7 @@ WEIGHTS_PATH = BASE / "weights" / "model.pkl"
 METRICS_PATH = BASE / "metrics.json"
 PLOTS_DIR    = BASE / "plots"
 CM_PATH      = PLOTS_DIR / "confusion_matrix.csv"
+
 
 # Nombres de features exportados para consumo en otros módulos
 FEATURE_NAMES = [
