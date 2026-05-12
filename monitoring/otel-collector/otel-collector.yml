@@ -20,19 +20,16 @@ processors:
   memory_limiter:
     check_interval: 1s
     limit_mib: 256
-  # Enrich all telemetry with deployment metadata
   resource:
     attributes:
       - key: deployment.environment
-        value: ${env:DEPLOY_ENV:-local}
+        value: "local"
         action: upsert
       - key: service.version
-        value: ${env:IMAGE_TAG:-dev}
+        value: "dev"
         action: upsert
 
 exporters:
-  # Always active: structured JSON logs to stdout (ingestable by CloudWatch
-  # Log Insights, GCP Logging, Datadog Log Management without any agent)
   logging:
     verbosity: normal
 
