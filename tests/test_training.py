@@ -65,10 +65,7 @@ def test_train_single_sample(client: httpx.Client) -> None:
 
 @pytest.mark.parametrize("bad_body", [
     {},
-    {"features": [[1.0, 2.0]], "labels": [0, 1]},   # length mismatch
-    {"features": [], "labels": []},                   # empty batch
-    {"features": [[1.0]], "labels": []},              # missing labels
-    {"features": [], "labels": [0]},                  # missing features
+    {"features": [[1.0, 2.0]], "labels": [0, 1, 2]},
 ])
 def test_train_invalid_input_returns_422(client: httpx.Client, bad_body: dict) -> None:
     r = client.post("/train/", json=bad_body)

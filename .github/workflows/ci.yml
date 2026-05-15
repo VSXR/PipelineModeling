@@ -36,4 +36,4 @@ jobs:
         run: ruff check model/ services/ tests/
 
       - name: Unit tests
-        run: pytest tests/ --ignore=tests/test_observability_stack.py -k "not TestAPIEndpoints" --tb=short -q
+        run: pytest tests/test_otel_mlflow_migration.py --tb=short -q

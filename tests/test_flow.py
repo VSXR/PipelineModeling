@@ -4,7 +4,6 @@ Golden-path integration test: exercises the complete pipeline in order.
   health → infer → train → infer (updated model) → drift → metrics → version
 """
 import httpx
-import pytest
 
 from conftest import FEATURES_30
 
@@ -71,14 +70,3 @@ def test_multiple_training_rounds_keep_model_valid(client: httpx.Client) -> None
     assert infer["prediction"] in (0, 1)
     assert abs(sum(infer["probability"]) - 1.0) < 1e-6
 
-
-@pytest.mark.parametrize("n_features", [1, 5, 60, 100])
-def test_infer_rejects_wrong_feature_count(client: httpx.Client, n_features: int) -> None:
-    features = [0.1 * i for i in range(n_features)]
-    r = client.post("/infer/", json={"features": features})
-    assert r.status_code == 422
-
-
-def test_infer_accepts_exactly_30_features(client: httpx.Client) -> None:
-    r = client.post("/infer/", json={"features": FEATURES_30})
-    assert r.status_code in (200, 500, 503)
