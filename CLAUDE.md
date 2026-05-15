@@ -1,45 +1,33 @@
-# Contexto y Rol
-Actúa como ingeniero de software senior y arquitecto MLOps.
-Proyecto: PipelineModeling.
-Restricción Arquitectónica Inquebrantable: Mantener separación estricta y explícita entre el código fuente y los datos de ejecución.
+# PipelineModeling - Guía de Proyecto para IA
 
-# Directrices de Operación y Salida
-- Síntesis absoluta. Formato exclusivo: párrafos, listas o tablas.
-- Prohibidos saludos, preámbulos, conclusiones o explicaciones básicas.
-- Formato de texto: Prohibido el uso de blockquotes. Prohibidas comillas simples en texto narrativo; permitidas solo por sintaxis de código.
-- Código: Bloques limpios. Cero comentarios salvo justificación de decisiones arquitectónicas complejas.
-- Protocolo obligatorio previo a código: Evaluar solución, enumerar estándares aplicados (SOLID, DRY) e identificar fallos potenciales y casos borde.
+## Operaciones CLI
+| Comando | Acción |
+|---|---|
+| `python manage.py setup` | Configuración inicial y creación del entorno virtual |
+| `python manage.py start` | Arranque del stack completo |
+| `python manage.py stop` | Parada de todos los servicios |
+| `python manage.py status` | Verificación de estado de servicios |
+| `python manage.py simulate --scenario all` | Ejecución de todos los escenarios de resiliencia |
 
-# Estructura de Referencia del Proyecto
-- /docs/: [api.md, architecture.md, cicd.md, crisp-dm.md, dataset.md, development.md, monitoring.md, setup.md, testing-observability.md, testing.md, versioning.md]
-- /services/api/: Backend FastAPI [main.py, routers/, core/, schemas/]
-- /services/frontend/: Interfaz [app.py, controller.py, domain.py, network.py, runtime.py]
-- /services/seeder/: [seeder.py]
-- /tests/: [test_flow.py, test_health.py, test_inference.py, test_metrics.py, test_observability_stack.py, test_otel_mlflow_migration.py, test_training.py, test_versioning.py]
-- Raíz: docker-compose.yml, manage.py, pytest.ini, README.md
+## Testing
+| Comando | Alcance |
+|---|---|
+| `python manage.py test` | Suite completa |
+| `python manage.py test --unit` | Unitarios excluyendo infraestructura API |
+| `python manage.py test --integration` | Integración de observabilidad y API |
 
-# Secuencia de Ejecución
-Ejecuta las siguientes tareas de forma secuencial. No inicies una tarea sin haber documentado la evaluación y casos borde de la solución propuesta para dicha fase.
+## Arquitectura y Estándares
+- **Separación de espacios:** Aislamiento absoluto entre el código fuente y los datos de ejecución.
+- **Principios:** Aplicación estricta de SOLID y DRY.
+- **Paradigma:** Enfoque funcional y declarativo preferente.
+- **Gestión de modelos:** MLflow Model Registry opera como fuente de verdad exclusiva para los artefactos. El registro requiere superar umbrales de métricas predefinidos.
+- **Flujos automatizados:** Workflows de GitHub Actions independientes para integración continua, reentrenamiento continuo y despliegue continuo.
+- **Telemetría:** Emisión nativa vía OpenTelemetry hacia OTel Collector, exportación a Prometheus y visualización en Grafana.
 
-## 1. Refactorización de Frontend
-- Analiza y modifica el directorio services/frontend/.
-- Objetivo: Consumir la totalidad de endpoints del backend (inferencia, entrenamiento, versionado, métricas).
-- Implementación: Define el estado completo de la interfaz para controlar y visualizar todo el ciclo MLOps.
-
-## 2. Infraestructura y Dependencias
-- Analiza docker-compose.yml, todos los Dockerfile y requirements.txt.
-- Objetivo: Resolver dependencias conflictivas u obsoletas. Corregir configuraciones de contenedores.
-- Implementación: Garantizar una orquestación limpia y funcional de todos los servicios (api, frontend, seeder) y del stack de observabilidad (Prometheus, Grafana, OpenTelemetry).
-
-## 3. Consolidación de Documentación
-- Analiza el directorio docs/ y README.md.
-- Objetivo: Simplificar y centralizar.
-- Implementación:
-  - Fusionar testing.md y testing-observability.md en un archivo único centralizado.
-  - Agrupar lógicamente la documentación de arquitectura y ciclo de vida.
-  - Actualizar README.md para que actúe como punto de entrada unificado y coherente con la nueva estructura.
-
-## 4. Refactorización de Tests
-- Analiza el directorio tests/.
-- Objetivo: Garantizar que la suite completa de pytest se ejecute sin errores.
-- Implementación: Eliminar pruebas redundantes, actualizar firmas de funciones desactualizadas respecto al backend/frontend y corregir fallos lógicos existentes.
+## Reglas de Interacción
+- Estructurar el texto exclusivamente mediante párrafos, listas y tablas.
+- Eliminar preámbulos, transiciones y explicaciones elementales.
+- Evitar el uso de comillas simples en el texto narrativo.
+- Mantener los bloques de código limpios de comentarios, documentando únicamente las decisiones arquitectónicas no evidentes.
+- Identificar casos borde y fallos potenciales antes de proponer implementaciones.
+- Solicitar parámetros adicionales mediante una lista de variables necesarias si la información inicial resulta insuficiente.

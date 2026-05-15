@@ -22,6 +22,7 @@ from .controller import (
     sync_current_version,
 )
 from .domain import AppState, initial_state
+from .network import fetch_register_version
 
 API_URL = os.getenv("API_URL", "http://api:8000").rstrip("/")
 
@@ -485,6 +486,16 @@ def _tab_versioning(state: AppState) -> None:
             _save(switch_version(_load(), API_URL, ref))
             _save(sync_current_version(_load(), API_URL))
             st.rerun()
+
+    st.divider()
+    st.caption("**Register current model to MLflow**")
+    st.caption("Promotes the model in memory (after training) to the MLflow Model Registry as a new version.")
+    if st.button("Register to MLflow", use_container_width=True):
+        try:
+            result = fetch_register_version(API_URL)
+            st.success(f"Registered as MLflow version {result.get('mlflow_version', '?')} — use that number in Switch version above.")
+        except Exception as exc:
+            st.error(str(exc))
 
     if state.version_history:
         st.divider()

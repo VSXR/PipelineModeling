@@ -116,6 +116,11 @@ class PipelineClient:
         response.raise_for_status()
         return response.json()
 
+    async def register_version(self) -> dict:
+        response = await self._client.post("/version/register", timeout=120.0)
+        response.raise_for_status()
+        return response.json()
+
     async def health(self) -> dict:
         response = await self._client.get("/health")
         response.raise_for_status()

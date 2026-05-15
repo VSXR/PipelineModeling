@@ -56,6 +56,11 @@ async def _current_version(api_url: str) -> dict:
         return await client.current_version()
 
 
+async def _register_version(api_url: str) -> dict:
+    async with PipelineClient(api_url) as client:
+        return await client.register_version()
+
+
 def fetch_health(api_url: str) -> dict:
     return _run(_health(api_url))
 
@@ -74,6 +79,10 @@ def fetch_switch(api_url: str, model_ref: str) -> object:
 
 def fetch_current_version(api_url: str) -> dict:
     return _run(_current_version(api_url))
+
+
+def fetch_register_version(api_url: str) -> dict:
+    return _run(_register_version(api_url))
 
 
 def fetch_chaos_state(api_url: str) -> dict:

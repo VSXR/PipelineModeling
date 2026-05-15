@@ -60,6 +60,7 @@ class ModelManager:
             )
         else:
             self._predictor = SKLearnPredictor.create_default()
+            await loop.run_in_executor(None, self._predictor.save, str(path))
         self._version = datetime.now(timezone.utc).isoformat()
         pipeline_metrics.set_model_loaded(True)
 
@@ -132,6 +133,51 @@ class ModelManager:
                 raise
 
         return previous
+
+    # ── register current model to MLflow ─────────────────────────────────────
+
+    async def register_to_mlflow(self) -> str:
+        self._init_locks()
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self._push_to_registry)
+
+    def _push_to_registry(self) -> str:
+        import joblib
+        import mlflow
+        import mlflow.sklearn
+        from mlflow import MlflowClient
+
+        path = Path(settings.model_path)
+        if not path.exists():
+            raise RuntimeError(
+                "No model artifact on disk. Call POST /train/ at least once before registering."
+            )
+
+        sk_model = joblib.load(path)
+        tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5000")
+        model_name = os.getenv("MLFLOW_MODEL_NAME", "pipeline-model")
+        experiment_name = os.getenv("MLFLOW_EXPERIMENT", "pipeline-breast-cancer")
+        mlflow.set_tracking_uri(tracking_uri)
+
+        client = MlflowClient()
+        exp = client.get_experiment_by_name(experiment_name)
+        if exp is not None and not exp.artifact_location.startswith("mlflow-artifacts:"):
+            client.delete_experiment(exp.experiment_id)
+
+        mlflow.set_experiment(experiment_name)
+
+        with mlflow.start_run() as run:
+            mlflow.sklearn.log_model(
+                sk_model=sk_model,
+                artifact_path="model",
+                registered_model_name=model_name,
+            )
+            run_id = run.info.run_id
+
+        versions = client.search_model_versions(
+            f"name='{model_name}' and run_id='{run_id}'"
+        )
+        return str(versions[0].version) if versions else "registered"
 
     def _pull_from_registry(self, model_ref: str) -> None:
         import mlflow.sklearn  # type: ignore[import]

@@ -54,13 +54,12 @@ _meter.create_observable_gauge(
 _meter.create_observable_gauge(
     "pipeline.data.drift_score",
     callbacks=[_obs_drift_scores],
-    unit="1",
     description="Normalised mean-shift drift score per feature",
 )
 
 # ── push instruments ──────────────────────────────────────────────────────────
 _inference_requests = _meter.create_counter(
-    "pipeline.inference.requests_total",
+    "pipeline.inference.requests",
     description="Cumulative inference requests by outcome",
 )
 _inference_latency = _meter.create_histogram(
@@ -69,15 +68,15 @@ _inference_latency = _meter.create_histogram(
     description="End-to-end inference latency (lock + predict + serialise)",
 )
 _training_requests = _meter.create_counter(
-    "pipeline.training.requests_total",
+    "pipeline.training.requests",
     description="Cumulative partial-fit requests by outcome",
 )
 _training_samples = _meter.create_counter(
-    "pipeline.training.samples_total",
+    "pipeline.training.samples",
     description="Cumulative samples consumed by partial_fit",
 )
 _version_switches = _meter.create_counter(
-    "pipeline.version.switches_total",
+    "pipeline.version.switches",
     description="Cumulative model version switches by outcome",
 )
 _model_load_duration = _meter.create_histogram(

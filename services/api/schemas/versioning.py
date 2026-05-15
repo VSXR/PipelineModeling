@@ -36,6 +36,17 @@ class VersionSwitchResponse(BaseModel):
     current_version: str = Field(..., description="Versión activa después del switch.")
 
 
+class VersionRegisterResponse(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {"status": "ok", "mlflow_version": "2"}
+        }
+    )
+
+    status: str = Field(..., description="Siempre `\"ok\"` si el registro tuvo éxito.")
+    mlflow_version: str = Field(..., description="Número de versión asignado por MLflow Model Registry.")
+
+
 class VersionCurrentResponse(BaseModel):
     model_config = ConfigDict(
         protected_namespaces=(),

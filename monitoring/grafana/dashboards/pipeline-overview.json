@@ -2,78 +2,373 @@
   "uid": "pipeline-overview",
   "title": "PipelineModeling Overview",
   "schemaVersion": 38,
-  "version": 1,
+  "version": 2,
   "refresh": "15s",
-  "time": {
-    "from": "now-30m",
-    "to": "now"
-  },
+  "time": { "from": "now-30m", "to": "now" },
+  "timezone": "browser",
+  "tags": ["pipeline", "mlops", "otel"],
   "panels": [
+
     {
+      "id": 1,
       "type": "timeseries",
-      "title": "Inference requests rate",
+      "title": "Inference request rate",
+      "description": "Requests/s by outcome (ok / error). Seeder drives ~20 req/s.",
       "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(rate(pipeline_inference_requests_total[5m])) by (status)"
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(rate(pipeline_inference_requests_total[1m])) by (status)",
+          "legendFormat": "{{status}}"
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": { "lineWidth": 2, "fillOpacity": 12, "spanNulls": false }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "error" },
+            "properties": [ { "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } } ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "ok" },
+            "properties": [ { "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } } ]
+          }
+        ]
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "none" },
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["mean", "last"] }
+      }
     },
+
     {
+      "id": 2,
       "type": "timeseries",
-      "title": "Inference latency p95",
+      "title": "Inference latency",
+      "description": "End-to-end latency: lock + predict + serialise.",
       "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.95, sum(rate(pipeline_inference_latency_seconds_bucket[5m])) by (le, status))"
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.95, sum(rate(pipeline_inference_latency_seconds_bucket[1m])) by (le, status))",
+          "legendFormat": "p95 {{status}}"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.50, sum(rate(pipeline_inference_latency_seconds_bucket[1m])) by (le, status))",
+          "legendFormat": "p50 {{status}}"
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "lineWidth": 2, "fillOpacity": 8, "spanNulls": false }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "descending" },
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["mean", "last"] }
+      }
     },
+
     {
+      "id": 3,
       "type": "timeseries",
-      "title": "Drift score by feature",
+      "title": "Training throughput (samples / s)",
+      "description": "Rate of samples consumed by partial_fit.",
       "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
           "refId": "A",
-          "expr": "pipeline_data_drift_score"
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(rate(pipeline_training_samples_total[1m]))",
+          "legendFormat": "samples/s"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(rate(pipeline_training_requests_total[1m])) by (status)",
+          "legendFormat": "train req {{status}}"
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "lineWidth": 2, "fillOpacity": 15, "spanNulls": false }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "none" },
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["mean", "last"] }
+      }
     },
+
     {
+      "id": 4,
       "type": "timeseries",
-      "title": "Training throughput",
+      "title": "Data drift score per feature (EMA)",
+      "description": "Normalised mean-shift per feature. Emitted every 50 inferences. Spikes indicate distribution shift.",
       "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(rate(pipeline_training_samples_total[5m]))"
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "pipeline_data_drift_score",
+          "legendFormat": "{{feature}}"
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": { "lineWidth": 1, "fillOpacity": 0, "spanNulls": true }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "descending" },
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["last"] }
+      }
     },
+
     {
+      "id": 5,
       "type": "stat",
       "title": "Model loaded",
-      "gridPos": { "x": 0, "y": 16, "w": 8, "h": 6 },
+      "gridPos": { "x": 0, "y": 16, "w": 6, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
           "refId": "A",
-          "expr": "pipeline_model_loaded"
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "pipeline_model_loaded",
+          "legendFormat": ""
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": { "text": "No",  "color": "red"   },
+                "1": { "text": "Yes", "color": "green" }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red",   "value": null },
+              { "color": "green", "value": 1    }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "orientation": "auto"
+      }
     },
+
     {
-      "type": "timeseries",
-      "title": "Version switches",
-      "gridPos": { "x": 8, "y": 16, "w": 16, "h": 6 },
+      "id": 6,
+      "type": "stat",
+      "title": "Total inferences",
+      "gridPos": { "x": 6, "y": 16, "w": 6, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(rate(pipeline_version_switches_total[5m])) by (status)"
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(pipeline_inference_requests_total)",
+          "legendFormat": ""
         }
-      ]
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "mode": "fixed", "fixedColor": "blue" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [ { "color": "blue", "value": null } ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "orientation": "auto"
+      }
+    },
+
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Total training samples",
+      "gridPos": { "x": 12, "y": 16, "w": 6, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(pipeline_training_samples_total)",
+          "legendFormat": ""
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "mode": "fixed", "fixedColor": "purple" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [ { "color": "purple", "value": null } ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "orientation": "auto"
+      }
+    },
+
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Inference error rate",
+      "description": "Fraction of inference requests that returned an error in the last 5 min.",
+      "gridPos": { "x": 18, "y": 16, "w": 6, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(rate(pipeline_inference_requests_total{status=\"error\"}[5m])) / sum(rate(pipeline_inference_requests_total[5m]))",
+          "legendFormat": ""
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": null },
+              { "color": "yellow", "value": 0.01 },
+              { "color": "red",    "value": 0.05 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "orientation": "auto"
+      }
+    },
+
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Version switches (MLflow → API)",
+      "description": "Each spike corresponds to a POST /version/switch that fetched a new model artifact from MLflow.",
+      "gridPos": { "x": 0, "y": 21, "w": 12, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(rate(pipeline_version_switches_total[5m])) by (status)",
+          "legendFormat": "switch {{status}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "lineWidth": 2, "fillOpacity": 10, "drawStyle": "bars", "barAlignment": 0 }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "switch error" },
+            "properties": [ { "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } } ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "switch ok" },
+            "properties": [ { "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } } ]
+          }
+        ]
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "none" },
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["sum"] }
+      }
+    },
+
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Model load duration p99 (MLflow artifact fetch)",
+      "description": "Wall-clock time to download and deserialise the model from MLflow artifact store.",
+      "gridPos": { "x": 12, "y": 21, "w": 12, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.99, sum(rate(pipeline_model_load_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p99 load time"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.50, sum(rate(pipeline_model_load_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p50 load time"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "lineWidth": 2, "fillOpacity": 8, "spanNulls": true }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "none" },
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["mean", "last"] }
+      }
     }
+
   ]
 }
