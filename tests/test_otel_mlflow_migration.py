@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import os
 from typing import Generator
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -98,7 +98,6 @@ class TestModelManagerStartup:
     def test_loads_real_pkl_when_present(self, tmp_path):
         import joblib
         from sklearn.linear_model import SGDClassifier
-        from services.api.core.predictor import SKLearnPredictor
 
         clf = SGDClassifier()
         clf.fit(np.zeros((4, 30)), [0, 1, 0, 1])
