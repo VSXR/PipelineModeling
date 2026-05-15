@@ -1,0 +1,104 @@
+name: CT — Continuous Training
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "model/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  PYTHON_VERSION: "3.11"
+  MLFLOW_MODEL_NAME: pipeline-model
+  MLFLOW_EXPERIMENT: pipeline-breast-cancer
+  ENVIRONMENT: ci
+
+jobs:
+  train:
+    name: Train · Validate · Promote · Release
+    runs-on: ubuntu-latest
+
+    env:
+      MLFLOW_TRACKING_URI:      ${{ secrets.MLFLOW_TRACKING_URI }}
+      MLFLOW_TRACKING_USERNAME: ${{ secrets.MLFLOW_TRACKING_USERNAME }}
+      MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: model/requirements.txt
+
+      - name: Install model dependencies
+        run: pip install -r model/requirements.txt
+
+      - name: Run training pipeline
+        id: train
+        working-directory: model
+        run: |
+          output=$(python train.py)
+          echo "$output"
+          version=$(echo "$output" | grep '^version=' | awk -F'[= ]' '{print $2}')
+          promoted=$(echo "$output" | grep '^promoted=' | awk -F= '{print $2}' | awk '{print $1}')
+          echo "version=$version"   >> "$GITHUB_OUTPUT"
+          echo "promoted=$promoted" >> "$GITHUB_OUTPUT"
+          for metric in accuracy f1 precision recall roc_auc; do
+            val=$(echo "$output" | grep "^metric\.$metric=" | awk -F= '{print $2}')
+            echo "$metric=$val" >> "$GITHUB_OUTPUT"
+          done
+
+      - name: Compute next semantic tag
+        id: semver
+        run: |
+          latest=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          IFS='.' read -r major minor patch <<< "${latest#v}"
+          echo "tag=v${major}.${minor}.$((patch + 1))" >> "$GITHUB_OUTPUT"
+
+      - name: Configure git identity
+        if: steps.train.outputs.promoted == 'true'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Create semantic tag
+        if: steps.train.outputs.promoted == 'true'
+        run: |
+          git tag "${{ steps.semver.outputs.tag }}"
+          git push origin "${{ steps.semver.outputs.tag }}"
+
+      - name: Create GitHub Release
+        if: steps.train.outputs.promoted == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.semver.outputs.tag }}" \
+            --title "Model ${{ steps.semver.outputs.tag }}" \
+            --notes "## Metrics
+
+          | Metric    | Value |
+          |-----------|-------|
+          | Accuracy  | ${{ steps.train.outputs.accuracy }}  |
+          | F1        | ${{ steps.train.outputs.f1 }}        |
+          | Precision | ${{ steps.train.outputs.precision }} |
+          | Recall    | ${{ steps.train.outputs.recall }}    |
+          | ROC-AUC   | ${{ steps.train.outputs.roc_auc }}   |
+
+          MLflow version: \`${{ steps.train.outputs.version }}\`
+          Commit: \`${{ github.sha }}\`"
+
+      - name: Upload model artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-${{ github.sha }}
+          path: |
+            model/weights/model.pkl
+            model/metrics.json
+          retention-days: 90

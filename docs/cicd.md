@@ -5,73 +5,102 @@
 ```
 commit → master
     │
-    ├─► ci.yml          (siempre)   — tests unitarios
+    ├─► ci.yml          (siempre)              — lint + tests unitarios
     │
-    └─► retrain.yml     (solo si cambia model/)
+    └─► ct.yml          (solo si cambia model/) — entrenamiento continuo
             │
-            └─► deploy.yml  (solo si retrain crea tag v*)
+            └─► cd.yml  (solo si CT crea Release) — build + push GHCR
 ```
 
-Los tres workflows son independientes pero se encadenan por eventos: `ci.yml` corre en cada push; `retrain.yml` solo cuando cambia el código del modelo; `deploy.yml` solo cuando `retrain.yml` crea un tag `v*` en `master`.
+Los tres workflows se encadenan por eventos: `ci.yml` en cada push; `ct.yml` solo cuando cambia `model/`; `cd.yml` solo cuando `ct.yml` publica un GitHub Release.
 
 ---
 
 ## Workflows
 
-### `ci.yml` — Tests en cada commit
+### `ci.yml` — Lint y tests en cada commit
 
 **Trigger:** push a `master` o `develop`, PR hacia `master`.
 
-**Qué hace:**
-1. Instala `services/api/requirements.txt` + `tests/requirements.txt`
-2. Ejecuta `pytest tests/ -k "not TestAPIEndpoints"` (tests unitarios, sin API levantada)
+**Pasos:**
+1. `ruff check model/ services/ tests/` — linter estático
+2. `pytest tests/ -k "not TestAPIEndpoints and not TestObservabilityStack"` — tests unitarios sin infra
 
-**Cuándo falla:** si algún test unitario rompe o hay errores de importación.
+**Falla si:** el linter reporta errores o algún test unitario rompe.
 
 ---
 
-### `retrain.yml` — Reentrenamiento y publicación de métricas
+### `ct.yml` — Continuous Training
 
 **Trigger:**
-- Push a `master` que modifique `model/train.py` o `model/requirements.txt`
-- Cron semanal: lunes 02:00 UTC
-- `workflow_dispatch` (manual, con parámetros `min_accuracy` y `min_f1`)
-
-**Qué hace:**
-1. Instala `model/requirements.txt`
-2. Ejecuta `python model/train.py` → genera `model/weights/model.pkl` + `model/metrics.json`
-3. Valida que `accuracy >= 0.80` y `f1 >= 0.80` (umbrales configurables)
-4. Sube el artefacto del modelo a GitHub Actions (retención 90 días)
-5. **Solo en `master`:** crea tag `v{YYYYMMDDHHMMSS}` y GitHub Release con tabla de métricas
+- Push a `master` que modifique cualquier fichero bajo `model/`
+- `workflow_dispatch` (manual)
 
 **Secretos necesarios:**
-| Secreto | Descripción | Obligatorio |
-|---|---|---|
-| `GITHUB_TOKEN` | Automático de GitHub Actions | Sí |
-| `MLFLOW_TRACKING_URI` | URI del servidor MLflow de producción | No (usa `file:///tmp/mlruns` si no se configura) |
 
-**Cuándo falla:** si las métricas no superan los umbrales configurados.
+| Secreto | Descripción |
+|---|---|
+| `MLFLOW_TRACKING_URI` | URI del servidor MLflow remoto |
+| `MLFLOW_TRACKING_USERNAME` | Usuario de autenticación básica MLflow |
+| `MLFLOW_TRACKING_PASSWORD` | Contraseña de autenticación básica MLflow |
+| `GITHUB_TOKEN` | Automático — para crear tags y Releases |
+
+**Pasos:**
+1. Instala `model/requirements.txt`
+2. Ejecuta `python model/train.py` → llama `ModelTrainer` + `ModelPromoter`
+   - `ModelTrainer` registra en MLflow: 6 parámetros, 5 métricas y 4 etiquetas de trazabilidad (`git.commit_hash`, `git.ref`, `environment`, `pipeline.version`)
+   - El modelo se registra con alias `Staging` en el Model Registry
+   - `ModelPromoter` valida umbrales; si los supera, asigna alias `Production`
+3. Parsea el output de `train.py` para extraer métricas e indicador `promoted`
+4. Calcula el siguiente tag semver (`v{major}.{minor}.{patch+1}`)
+5. **Solo si `promoted=true`:** crea tag Git y GitHub Release con tabla de métricas
+6. Sube artefactos locales a GitHub Actions (retención 90 días)
+
+**Falla si:** las métricas no superan los umbrales o MLflow no es alcanzable.
+
+**Umbrales de promoción (`model/train.py`):**
+
+| Métrica | Umbral mínimo |
+|---|---|
+| accuracy | 0.85 |
+| f1 | 0.82 |
+| roc_auc | 0.90 |
 
 ---
 
-### `deploy.yml` — Build y push de imagen Docker
+### `cd.yml` — Continuous Delivery
 
-**Trigger:** creación de tag `v*` (generado automáticamente por `retrain.yml`).
+**Trigger:** publicación de un GitHub Release (generado automáticamente por `ct.yml`).
 
-**Qué hace:**
-1. **build-push**: construye `services/api/Dockerfile` (stage `runtime`) y publica en GHCR con tags:
-   - `v{semver}` — versión exacta del tag
-   - `{major}.{minor}` — alias de minor
-   - `sha-{short}` — referencia al commit
-   - `latest` — solo en `master`
-2. **smoke-test**: levanta `mlflow + otel-collector + api` con la imagen publicada, espera readiness y lanza una inferencia de prueba con sample real del dataset Breast Cancer
-3. **deploy-production** *(comentado)*: punto de extensión para rollout a Kubernetes, ECS o Cloud Run
+**Pasos:**
 
-**Permisos necesarios:**
-- `contents: read` + `packages: write` (para push a GHCR)
-- El repositorio debe tener **GitHub Packages** habilitado
+**job `build-push`:**
+1. Login en GHCR con `GITHUB_TOKEN`
+2. Extrae metadata de imagen — tags semver + SHA + `latest`
+3. Construye `services/api/Dockerfile` (stage `runtime`) con caché GHA
+4. Push a `ghcr.io/{owner}/{repo}/api`
 
-**Cuándo falla:** si el build falla, si la API no responde en 90 segundos, o si el endpoint `/infer/` no retorna HTTP 200.
+**job `smoke-test`** (depende de `build-push`):
+1. Levanta stack efímero: `mlflow + otel-collector + api` con la imagen recién publicada
+2. Espera readiness de la API (max 90 s, sondeo cada 3 s)
+3. Valida `GET /health` → 200
+4. Valida `POST /infer/` con muestra real del dataset → HTTP 200
+5. Derriba el stack (`docker compose down -v`)
+
+**Permisos:** `contents: read` + `packages: write`
+
+**Falla si:** el build falla, la API no responde o la inferencia retorna código distinto de 200.
+
+---
+
+## Tags de imagen publicados en GHCR
+
+| Tag | Ejemplo | Uso |
+|---|---|---|
+| Semver exacto | `v1.0.4` | Referencia inmutable para rollback |
+| Major.minor | `1.0` | Alias de rolling minor |
+| SHA corto | `sha-ef58985` | Trazabilidad exacta al commit |
+| `latest` | — | Despliegue de producción por defecto |
 
 ---
 
@@ -79,45 +108,46 @@ Los tres workflows son independientes pero se encadenan por eventos: `ci.yml` co
 
 ### 1. Secretos de repositorio
 
-Ir a **Settings → Secrets and variables → Actions** y añadir:
+**Settings → Secrets and variables → Actions:**
 
 ```
-MLFLOW_TRACKING_URI   →  URI del servidor MLflow de producción
-                          (omitir para usar almacenamiento local temporal en CI)
+MLFLOW_TRACKING_URI        →  https://mlflow.example.com
+MLFLOW_TRACKING_USERNAME   →  mlflow_user
+MLFLOW_TRACKING_PASSWORD   →  ***
 ```
 
-`GITHUB_TOKEN` es automático — no hace falta configurarlo.
+`GITHUB_TOKEN` es automático.
 
 ### 2. GitHub Packages (GHCR)
 
-La imagen se publica en `ghcr.io/{owner}/{repo}/api`. No requiere configuración adicional si el repositorio es público. Para repositorios privados, verificar que el token tiene scope `write:packages`.
+La imagen se publica en `ghcr.io/{owner}/{repo}/api`. Para repositorios privados, verificar que el token tiene scope `write:packages`.
 
 ### 3. Branch de producción
 
-Los workflows están configurados para `master`. Si en algún momento se renombra el branch principal, actualizar las referencias `refs/heads/master` en los tres archivos de workflow.
+Los workflows apuntan a `master`. Si se renombra, actualizar las referencias en los tres YAML.
 
 ---
 
-## Imágenes Docker publicadas
-
-| Tag | Cuándo se crea | Uso |
-|---|---|---|
-| `latest` | Cada tag en `master` | Despliegue de producción por defecto |
-| `v20260511120000` | Cada retrain exitoso | Rollback a versión exacta |
-| `sha-abc1234` | Cada build | Trazabilidad por commit |
-
-Para hacer rollback manual a una versión anterior:
+## Rollback de imagen
 
 ```bash
-docker pull ghcr.io/{owner}/{repo}/api:v20260511120000
-# Actualizar el tag de imagen en docker-compose.yml o en el orquestador
+docker pull ghcr.io/{owner}/{repo}/api:sha-ef58985
+# Actualizar la referencia de imagen en docker-compose.yml o el orquestador
+```
+
+Para rollback de modelo sin reconstruir imagen, usar hot-swap:
+
+```bash
+curl -X POST http://localhost:8000/version/switch \
+  -H "Content-Type: application/json" \
+  -d '{"model_ref": "2"}'
 ```
 
 ---
 
 ## Extender el pipeline de despliegue
 
-El job `deploy-production` en `deploy.yml` está comentado. Para activarlo:
+Añadir un job `deploy-production` al final de `cd.yml`:
 
 ```yaml
 deploy-production:
@@ -131,14 +161,11 @@ deploy-production:
         # Kubernetes:
         kubectl set image deployment/pipeline-api \
           api=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-push.outputs.image_digest }}
-
         # ECS:
-        aws ecs update-service --cluster pipeline --service api \
-          --force-new-deployment
-
+        aws ecs update-service --cluster pipeline --service api --force-new-deployment
         # Cloud Run:
         gcloud run deploy pipeline-api \
           --image ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-push.outputs.image_digest }}
 ```
 
-Añadir el entorno `production` en **Settings → Environments** para habilitar la aprobación manual antes del despliegue.
+Activar el entorno `production` en **Settings → Environments** para requerir aprobación manual.

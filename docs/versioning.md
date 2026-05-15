@@ -1,39 +1,69 @@
-# Versionado de modelos (MLflow Model Registry + GitHub Actions)
+# Versionado de modelos
 
-El sistema utiliza **MLflow Model Registry** como fuente de verdad para artefactos de modelo y **GitHub Actions** para automatizar el ciclo de reentrenamiento y despliegue. Git rastrea código y métricas; el `.pkl` canónico vive en el registry.
+MLflow Model Registry es la fuente de verdad para artefactos de modelo. GitHub Actions automatiza el ciclo de reentrenamiento y despliegue. Git rastrea código; el modelo canónico vive en el registry.
 
 ---
 
-## Flujo automatizado con GitHub Actions
+## Clases de entrenamiento y promoción
 
-Un push a `model/train.py` o `model/requirements.txt` en `master` dispara el pipeline completo:
+### `ModelTrainer` (`model/trainer.py`)
+
+Encapsula el ciclo completo de entrenamiento:
+
+```python
+trainer = ModelTrainer(
+    tracking_uri="http://localhost:5000",
+    experiment="pipeline-breast-cancer",
+    model_name="pipeline-model",
+)
+result = trainer.train(git_commit="04429b4", git_ref="develop")
+# result.version  → "4"
+# result.metrics  → {"accuracy": 0.9737, "f1": 0.9790, "roc_auc": 0.9947, ...}
+```
+
+**Qué registra en MLflow por run:**
+
+| Tipo | Claves |
+|---|---|
+| Params | `model_class`, `loss`, `max_iter`, `random_state`, `dataset`, `n_features` |
+| Metrics | `accuracy`, `f1`, `precision`, `recall`, `roc_auc` |
+| Tags | `git.commit_hash`, `git.ref`, `environment`, `pipeline.version` |
+| Artifact | Pipeline `StandardScaler + SGDClassifier` serializado |
+
+El modelo queda registrado con alias `Staging` inmediatamente tras el entrenamiento.
+
+### `ModelPromoter` (`model/promote.py`)
+
+Promueve `Staging` → `Production` si todas las métricas superan los umbrales:
+
+```python
+promo = ModelPromoter(
+    tracking_uri="http://localhost:5000",
+    model_name="pipeline-model",
+    thresholds={"accuracy": 0.85, "f1": 0.82, "roc_auc": 0.90},
+).promote(version="4")
+# promo.promoted → True
+# promo.reason   → "all thresholds met"
+```
+
+La operación es idempotente: `set_registered_model_alias` sobrescribe el alias `Production` sin duplicar versiones.
+
+---
+
+## Flujo automatizado (GitHub Actions)
+
+Un push a `model/**` en `master` dispara el pipeline completo:
 
 ```mermaid
 flowchart TD
-    A["git push → model/train.py"] --> B["retrain.yml\npython model/train.py"]
-    B --> C["Validate metrics\naccuracy ≥ 0.80 · f1 ≥ 0.80"]
-    C -->|falla| STOP["❌ Workflow falla\nNo se registra versión"]
-    C -->|pasa| D["mlflow.sklearn.log_model\nRegistra en Model Registry"]
-    D --> E["upload-artifact\nmodel.pkl · metrics.json · confusion_matrix.csv\n(retención 90 días)"]
-    E --> F["git tag v{timestamp}\ngit push origin tag"]
-    F --> G["GitHub Release\ncon tabla de métricas"]
-    G --> H["deploy.yml\nbuild → push GHCR → smoke test"]
-```
-
-### Disparadores disponibles
-
-| Trigger | Cuándo |
-|---|---|
-| `push` en `model/train.py` o `model/requirements.txt` | Automático en cada cambio de código de entrenamiento |
-| `schedule` (lunes 02:00 UTC) | Refresco semanal de baseline |
-| `workflow_dispatch` | Manual desde GitHub Actions UI con umbrales personalizables |
-
-### Umbrales de validación
-
-```yaml
-# workflow_dispatch inputs (defaults)
-min_accuracy: "0.80"
-min_f1:       "0.80"
+    A["git push → model/**"] --> B["ct.yml\npython model/train.py"]
+    B --> C["ModelTrainer.train()\nregistra tags git.commit_hash + git.ref"]
+    C --> D["Model Registry\nalias Staging → vN"]
+    D --> E["ModelPromoter.promote()\naccuracy ≥ 0.85 · f1 ≥ 0.82 · roc_auc ≥ 0.90"]
+    E -->|no supera umbrales| STOP["ct.yml falla\nNo se crea tag ni Release"]
+    E -->|supera umbrales| F["alias Production → vN"]
+    F --> G["git tag vX.Y.Z\nGitHub Release con métricas"]
+    G --> H["cd.yml\nbuild → push GHCR → smoke test"]
 ```
 
 ---
@@ -41,73 +71,76 @@ min_f1:       "0.80"
 ## Flujo manual de entrenamiento
 
 ```powershell
-# 1. Modificar model/train.py si es necesario
+# Entrenar localmente apuntando al stack Docker
+$env:MLFLOW_TRACKING_URI = "http://localhost:5000"
+$env:MLFLOW_MODEL_NAME   = "pipeline-model"
 
-# 2. Entrenar localmente
-.venv\Scripts\python model/train.py
+cd model
+..\venv\Scripts\python train.py
+```
 
-# 3. Revisar métricas
-Get-Content model/metrics.json | ConvertFrom-Json
-
-# 4. Commitear y publicar (dispara retrain.yml automáticamente)
-git add model/train.py model/metrics.json
-git commit -m "train: ajuste de hiperparámetros"
-git push origin master
+Output esperado:
+```
+version=4 run_id=ef58985930e6...
+promoted=True reason=all thresholds met
+metric.accuracy=0.9737
+metric.f1=0.9790
+metric.precision=0.9859
+metric.recall=0.9722
+metric.roc_auc=0.9947
 ```
 
 ---
 
 ## MLflow Model Registry
 
-### Ver versiones registradas
+### Ver versiones y aliases
 
-```powershell
-# Via MLflow CLI
-.venv\Scripts\mlflow models list --name pipeline-model
-
-# Via Python
-python -c "
+```python
 import mlflow
-mlflow.set_tracking_uri('http://localhost:5000')
-client = mlflow.tracking.MlflowClient()
-for v in client.search_model_versions(\"name='pipeline-model'\"):
-    print(v.version, v.current_stage, v.run_id[:8])
-"
+from mlflow.tracking import MlflowClient
+
+mlflow.set_tracking_uri("http://localhost:5000")
+client = MlflowClient()
+
+for v in client.search_model_versions("name='pipeline-model'"):
+    print(v.version, v.aliases, v.run_id[:8])
+
+prod = client.get_model_version_by_alias("pipeline-model", "Production")
+print("Production →", prod.version)
 ```
 
 ### Aliases disponibles
 
-MLflow Model Registry usa aliases para identificar versiones de forma semántica:
-
 | Alias | Descripción |
 |---|---|
-| `Production` | Versión activa en producción |
-| `Staging` | Versión candidata en validación |
+| `Production` | Versión activa — asignada por `ModelPromoter` si supera umbrales |
+| `Staging` | Candidata — asignada por `ModelTrainer` tras cada entrenamiento |
 | `1`, `2`, `3`… | Número de versión absoluto |
 
-### Promover una versión a producción
+### Comparar métricas entre versiones
 
 ```python
-import mlflow
-mlflow.set_tracking_uri("http://localhost:5000")
-client = mlflow.tracking.MlflowClient()
-client.set_registered_model_alias("pipeline-model", "Production", version="3")
+for version in ["3", "4"]:
+    mv = client.get_model_version("pipeline-model", version)
+    run = client.get_run(mv.run_id)
+    print(f"v{version}:", run.data.metrics)
+    print(f"  git.ref={run.data.tags.get('git.ref')}",
+          f"  commit={run.data.tags.get('git.commit_hash', '')[:8]}")
 ```
 
 ---
 
-## Cambiar a una versión en caliente (hot-swap)
-
-El modelo se recarga sin reiniciar la API.
+## Hot-swap de versiones (sin reiniciar la API)
 
 ### Desde el frontend
 
-http://localhost:8501 → tab **Version Control** → escribe el `model_ref` → *Switch Version*.
+`http://localhost:8501` → tab **Version Control** → introduce `model_ref` → *Switch Version*.
 
 ### Desde la API
 
 ```powershell
-# Por alias MLflow
+# Por alias
 Invoke-RestMethod -Method Post http://localhost:8000/version/switch `
     -ContentType "application/json" `
     -Body '{"model_ref": "Production"}'
@@ -116,61 +149,43 @@ Invoke-RestMethod -Method Post http://localhost:8000/version/switch `
 Invoke-RestMethod -Method Post http://localhost:8000/version/switch `
     -ContentType "application/json" `
     -Body '{"model_ref": "2"}'
-```
 
-### Consultar versión activa
-
-```powershell
+# Consultar versión activa
 Invoke-RestMethod http://localhost:8000/version/current
 ```
 
-El endpoint devuelve el `model_ref` con el que se cargó la versión actual.
-
 ---
 
-## Comparar métricas entre versiones
+## Rollback
 
-```python
+```powershell
+# 1. Identificar la versión anterior en MLflow UI (http://localhost:5000)
+
+# 2. Hot-swap inmediato via API
+Invoke-RestMethod -Method Post http://localhost:8000/version/switch `
+    -ContentType "application/json" `
+    -Body '{"model_ref": "3"}'
+
+# 3. Reasignar alias Production en el registry
+python -c "
 import mlflow
-
-mlflow.set_tracking_uri("http://localhost:5000")
-client = mlflow.tracking.MlflowClient()
-
-for version in ["1", "2"]:
-    mv = client.get_model_version("pipeline-model", version)
-    run = client.get_run(mv.run_id)
-    print(f"v{version}:", run.data.metrics)
+mlflow.set_tracking_uri('http://localhost:5000')
+mlflow.tracking.MlflowClient().set_registered_model_alias('pipeline-model', 'Production', '3')
+"
 ```
+
+El modelo en memoria se preserva si MLflow es inalcanzable durante el switch.
 
 ---
 
 ## Consultar versiones publicadas
 
 ```powershell
-# Tags Git (cada reentrenamiento en master crea un tag v{timestamp})
+# Tags Git semánticos (creados automáticamente por ct.yml)
 git tag -l "v*"
 git ls-remote --tags origin
 
-# GitHub Releases (incluyen tabla de métricas y artefactos adjuntos)
+# GitHub Releases (incluyen tabla de métricas)
 gh release list
-gh release view v20260511020000
-```
-
----
-
-## Rollback manual
-
-```powershell
-# 1. Identificar la versión anterior en MLflow UI (http://localhost:5000)
-# 2. Hot-swap via API
-Invoke-RestMethod -Method Post http://localhost:8000/version/switch `
-    -ContentType "application/json" `
-    -Body '{"model_ref": "1"}'
-
-# 3. Opcionalmente, promover esa versión a Production en el registry
-python -c "
-import mlflow
-mlflow.set_tracking_uri('http://localhost:5000')
-mlflow.tracking.MlflowClient().set_registered_model_alias('pipeline-model', 'Production', '1')
-"
+gh release view v1.0.4
 ```
