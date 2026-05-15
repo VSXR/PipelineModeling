@@ -5,10 +5,12 @@ from typing import Optional
 
 from .domain import (
     AppState,
+    ChaosRecord,
     InferenceRecord,
     ServiceHealth,
     TrainingRecord,
     VersionRecord,
+    append_chaos,
     append_inference,
     append_training,
     append_version,
@@ -17,9 +19,12 @@ from .domain import (
     with_error,
 )
 from .network import (
+    fetch_chaos_state,
     fetch_current_version,
     fetch_health,
     fetch_inference,
+    fetch_reset_chaos,
+    fetch_set_chaos,
     fetch_switch,
     fetch_training,
 )
@@ -86,9 +91,9 @@ def run_training(state: AppState, api_url: str, features: list[list[float]], lab
         return with_error(state, f"Training failed: {exc}")
 
 
-def switch_version(state: AppState, api_url: str, git_ref: str) -> AppState:
+def switch_version(state: AppState, api_url: str, model_ref: str) -> AppState:
     try:
-        result = fetch_switch(api_url, git_ref)
+        result = fetch_switch(api_url, model_ref)
         record = VersionRecord(
             previous_version=str(result.previous_version),
             current_version=str(result.current_version),
@@ -109,8 +114,36 @@ def switch_version(state: AppState, api_url: str, git_ref: str) -> AppState:
 def sync_current_version(state: AppState, api_url: str) -> AppState:
     try:
         current = fetch_current_version(api_url)
-        version = current.get("current_version") or current.get("model_version") or current.get("version") or "—"
+        version = current.get("version") or "—"
         loaded = bool(current.get("model_loaded", state.api.model_loaded))
         return update_health_snapshot(state, model_loaded=loaded, model_version=str(version), reachable=True)
     except Exception:
         return state
+
+
+def refresh_chaos(state: AppState, api_url: str) -> AppState:
+    try:
+        data = fetch_chaos_state(api_url)
+        rate = float(data.get("chaos_state", {}).get("inference_error_rate", 0.0))
+        record = ChaosRecord(inference_error_rate=rate, checked_at=now_utc())
+        return append_chaos(state, record)
+    except Exception:
+        return state
+
+
+def apply_chaos(state: AppState, api_url: str, rate: float) -> AppState:
+    try:
+        fetch_set_chaos(api_url, rate)
+        record = ChaosRecord(inference_error_rate=rate, checked_at=now_utc())
+        return append_chaos(state, record)
+    except Exception as exc:
+        return with_error(state, f"Chaos set failed: {exc}")
+
+
+def clear_chaos(state: AppState, api_url: str) -> AppState:
+    try:
+        fetch_reset_chaos(api_url)
+        record = ChaosRecord(inference_error_rate=0.0, checked_at=now_utc())
+        return append_chaos(state, record)
+    except Exception as exc:
+        return with_error(state, f"Chaos reset failed: {exc}")

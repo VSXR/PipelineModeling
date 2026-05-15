@@ -48,6 +48,12 @@ class VersionRecord:
 
 
 @dataclass(frozen=True)
+class ChaosRecord:
+    inference_error_rate: float
+    checked_at: datetime
+
+
+@dataclass(frozen=True)
 class TimelineSample:
     checked_at: datetime
     confidence: Optional[float] = None
@@ -63,6 +69,7 @@ class AppState:
     inference_history: tuple[InferenceRecord, ...] = field(default_factory=tuple)
     training_history: tuple[TrainingRecord, ...] = field(default_factory=tuple)
     version_history: tuple[VersionRecord, ...] = field(default_factory=tuple)
+    chaos_history: tuple[ChaosRecord, ...] = field(default_factory=tuple)
     timeline: tuple[TimelineSample, ...] = field(default_factory=tuple)
     last_error: str = ""
     selected_tab: str = "Inference"
@@ -145,6 +152,14 @@ def append_version(state: AppState, record: VersionRecord) -> AppState:
             ),
             MAX_TIMELINE,
         ),
+        last_error="",
+    )
+
+
+def append_chaos(state: AppState, record: ChaosRecord) -> AppState:
+    return replace(
+        state,
+        chaos_history=trim_history(state.chaos_history + (record,), MAX_HISTORY),
         last_error="",
     )
 

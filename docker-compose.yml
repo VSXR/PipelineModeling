@@ -3,14 +3,11 @@ networks:
     driver: bridge
 
 volumes:
-  model_weights:
   mlflow_data:
   prometheus_data:
   grafana_data:
 
 services:
-
-  # MLflow Tracking Server
   mlflow:
     image: ghcr.io/mlflow/mlflow:v2.12.2
     container_name: pipeline_mlflow
@@ -26,9 +23,14 @@ services:
       - "5000:5000"
     networks:
       - pipeline_net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://127.0.0.1:5000/health', timeout=5).raise_for_status()"]
+      interval: 10s
+      timeout: 8s
+      retries: 10
+      start_period: 60s
     restart: unless-stopped
 
-  # OpenTelemetry Collector
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.99.0
     container_name: pipeline_otel_collector
@@ -36,10 +38,10 @@ services:
     volumes:
       - ./monitoring/otel-collector/otel-collector.yml:/etc/otel/otel-collector.yml:ro
     ports:
-      - "4317:4317"   # OTLP gRPC receiver
-      - "4318:4318"   # OTLP HTTP receiver
-      - "55679:55679" # zPages (debug UI)
-      - "9464:9464"   # Prometheus scrape endpoint
+      - "4317:4317"
+      - "4318:4318"
+      - "55679:55679"
+      - "9464:9464"
     networks:
       - pipeline_net
     restart: unless-stopped
@@ -97,7 +99,6 @@ services:
       start_period: 20s
     restart: unless-stopped
 
-  # API
   api:
     build:
       context: .
@@ -109,17 +110,18 @@ services:
       MODEL_PATH:                    /app/model/weights/model.pkl
       MLFLOW_TRACKING_URI:           http://mlflow:5000
       MLFLOW_MODEL_NAME:             pipeline-model
-      OTEL_EXPORTER_OTLP_ENDPOINT:  http://otel-collector:4317
+      OTEL_EXPORTER_OTLP_ENDPOINT:   http://otel-collector:4317
       OTEL_SERVICE_NAME:             pipeline-api
+      ENABLE_DEBUG_ENDPOINTS:        ${ENABLE_DEBUG_ENDPOINTS:-false}
     volumes:
-      - model_weights:/app/model/weights
+      - ./model/weights:/app/model/weights
     ports:
       - "8000:8000"
     networks:
       - pipeline_net
     depends_on:
       mlflow:
-        condition: service_started
+        condition: service_healthy
       otel-collector:
         condition: service_started
     healthcheck:
@@ -128,6 +130,25 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./services
+      dockerfile: frontend/Dockerfile
+    container_name: pipeline_frontend
+    environment:
+      API_URL:        http://api:8000
+      MLFLOW_URL:     http://mlflow:5000
+      GRAFANA_URL:    http://grafana:3000
+      PROMETHEUS_URL: http://prometheus:9090
+    ports:
+      - "8501:8501"
+    networks:
+      - pipeline_net
+    depends_on:
+      api:
+        condition: service_healthy
     restart: unless-stopped
 
   seeder:
@@ -142,24 +163,6 @@ services:
       DRIFT_ONSET_AFTER_S:   "120"
       DRIFT_MAGNITUDE:       "2.0"
       INFERENCE_CONCURRENCY: "10"
-    networks:
-      - pipeline_net
-    depends_on:
-      api:
-        condition: service_healthy
-    restart: unless-stopped
-
-  frontend:
-    build:
-      context: ./services/frontend
-    container_name: pipeline_frontend
-    environment:
-      API_URL:        http://api:8000
-      MLFLOW_URL:     http://mlflow:5000
-      GRAFANA_URL:    http://grafana:3000
-      PROMETHEUS_URL: http://prometheus:9090
-    ports:
-      - "8501:8501"
     networks:
       - pipeline_net
     depends_on:

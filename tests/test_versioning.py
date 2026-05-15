@@ -26,14 +26,14 @@ def test_version_current_consistent_with_health(client: httpx.Client) -> None:
 def test_version_switch_nonexistent_ref_returns_500(client: httpx.Client) -> None:
     r = client.post(
         "/version/switch",
-        json={"git_ref": "refs/tags/v999.999.999-does-not-exist"},
+        json={"model_ref": "v999.999.999-does-not-exist"},
         timeout=30.0,
     )
     assert r.status_code == 500
 
 
 def test_version_switch_empty_ref_returns_422(client: httpx.Client) -> None:
-    r = client.post("/version/switch", json={"git_ref": ""})
+    r = client.post("/version/switch", json={"model_ref": ""})
     assert r.status_code == 422
 
 

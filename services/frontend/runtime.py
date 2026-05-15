@@ -12,128 +12,186 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from .controller import (
+    apply_chaos,
+    clear_chaos,
+    refresh_chaos,
     refresh_health,
     run_inference,
     run_training,
     switch_version,
     sync_current_version,
 )
-from .domain import AppState, initial_state, set_inference_mode, set_training_mode
+from .domain import AppState, initial_state
 
-API_URL = os.getenv("API_URL", "http://localhost:8000").rstrip("/")
-GRAFANA_URL = os.getenv("GRAFANA_URL", "http://localhost:3000").rstrip("/")
-PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://localhost:9090").rstrip("/")
+API_URL = os.getenv("API_URL", "http://api:8000").rstrip("/")
+
 N_FEATURES = 30
-FEAT_NAMES = [
-    "radius_mean", "texture_mean", "perimeter_mean", "area_mean",
-    "smoothness_mean", "compactness_mean", "concavity_mean", "concpts_mean",
-    "symmetry_mean", "fracdim_mean",
-    "radius_se", "texture_se", "perimeter_se", "area_se",
-    "smoothness_se", "compactness_se", "concavity_se", "concpts_se",
-    "symmetry_se", "fracdim_se",
-    "radius_worst", "texture_worst", "perimeter_worst", "area_worst",
-    "smoothness_worst", "compactness_worst", "concavity_worst", "concpts_worst",
-    "symmetry_worst", "fracdim_worst",
-]
+_GROUPS: dict[str, list[str]] = {
+    "Mean": [
+        "radius_mean", "texture_mean", "perimeter_mean", "area_mean", "smoothness_mean",
+        "compactness_mean", "concavity_mean", "concave_pts_mean", "symmetry_mean", "fracdim_mean",
+    ],
+    "SE": [
+        "radius_se", "texture_se", "perimeter_se", "area_se", "smoothness_se",
+        "compactness_se", "concavity_se", "concave_pts_se", "symmetry_se", "fracdim_se",
+    ],
+    "Worst": [
+        "radius_worst", "texture_worst", "perimeter_worst", "area_worst", "smoothness_worst",
+        "compactness_worst", "concavity_worst", "concave_pts_worst", "symmetry_worst", "fracdim_worst",
+    ],
+}
+FEAT_NAMES: list[str] = [f for g in _GROUPS.values() for f in g]
+
+_KEY = "app_state"
 
 
-def _state_key() -> str:
-    return "pm_frontend_state"
+def _load() -> AppState:
+    if _KEY not in st.session_state:
+        st.session_state[_KEY] = initial_state()
+    return st.session_state[_KEY]
 
 
-def _load_state() -> AppState:
-    if _state_key() not in st.session_state:
-        st.session_state[_state_key()] = initial_state()
-    return st.session_state[_state_key()]
+def _save(state: AppState) -> None:
+    st.session_state[_KEY] = state
 
 
-def _store_state(state: AppState) -> None:
-    st.session_state[_state_key()] = state
-
-
-def _fmt_dt(value) -> str:
-    if value is None:
-        return "—"
+def _hms(value) -> str:
     try:
-        return value.astimezone().strftime("%d %b %Y %H:%M:%S UTC")
+        return value.strftime("%H:%M:%S")
     except Exception:
-        return str(value)
+        return "—"
 
 
 def _inject_styles() -> None:
     st.markdown(
         """
         <style>
-        :root {
-          --pm-bg: #0b1020;
-          --pm-panel: #11182e;
-          --pm-panel-2: #151e38;
-          --pm-line: rgba(142, 160, 255, 0.18);
-          --pm-text: #e8ecff;
-          --pm-muted: #9aa6c7;
-          --pm-accent: #7c9cff;
-          --pm-accent-2: #62e6c5;
-          --pm-alert: #ff6a88;
+        *, *::before, *::after {
+          font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, system-ui, sans-serif !important;
         }
-        .stApp {
-          background:
-            radial-gradient(circle at top left, rgba(124, 156, 255, 0.18), transparent 30%),
-            radial-gradient(circle at top right, rgba(98, 230, 197, 0.12), transparent 22%),
-            linear-gradient(180deg, #08101c 0%, #09111f 42%, #0b1020 100%);
-          color: var(--pm-text);
+
+        /* ── Sidebar ── */
+        [data-testid="stSidebar"] h1 {
+          font-size: 1.2rem !important;
+          font-weight: 800 !important;
+          letter-spacing: -0.02em !important;
+          color: #f1f5f9 !important;
+          margin-bottom: 0.1rem !important;
         }
-        .pm-shell {
-          border: 1px solid var(--pm-line);
-          border-radius: 22px;
-          padding: 1rem 1.1rem;
-          background: linear-gradient(180deg, rgba(17, 24, 46, 0.96), rgba(14, 20, 38, 0.92));
-          box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+        [data-testid="stSidebar"] h3 {
+          font-size: 0.65rem !important;
+          font-weight: 700 !important;
+          text-transform: uppercase !important;
+          letter-spacing: 0.12em !important;
+          color: #475569 !important;
+          margin-top: 0.25rem !important;
+          margin-bottom: 0.3rem !important;
         }
-        .pm-title {
-          font-size: 2.4rem;
-          font-weight: 800;
-          letter-spacing: -0.04em;
-          margin-bottom: 0.2rem;
+        [data-testid="stSidebar"] [data-testid="stMetricValue"] {
+          font-size: 1.15rem !important;
+          font-weight: 700 !important;
         }
-        .pm-subtitle {
-          color: var(--pm-muted);
-          font-size: 0.95rem;
-          margin-bottom: 1rem;
+        [data-testid="stSidebar"] [data-testid="stMetricLabel"] p {
+          font-size: 0.68rem !important;
+          text-transform: uppercase !important;
+          letter-spacing: 0.08em !important;
+          color: #475569 !important;
         }
-        .pm-card {
-          border: 1px solid var(--pm-line);
-          border-radius: 18px;
-          background: linear-gradient(180deg, var(--pm-panel), var(--pm-panel-2));
-          padding: 1rem 1.05rem;
-          min-height: 100%;
+
+        /* ── Tabs ── */
+        [data-baseweb="tab-list"] {
+          gap: 0.2rem !important;
+          padding-bottom: 0 !important;
+          border-bottom: 1px solid rgba(255,255,255,0.07) !important;
         }
-        .pm-card h4 {
-          margin: 0 0 0.35rem 0;
+        button[data-baseweb="tab"] {
+          font-size: 0.875rem !important;
+          font-weight: 600 !important;
+          color: #64748b !important;
+          padding: 0.55rem 1.1rem !important;
+          border-radius: 6px 6px 0 0 !important;
+          border-bottom: 2px solid transparent !important;
+          transition: color 0.15s, background 0.15s !important;
         }
-        .pm-kpi {
-          font-size: 2rem;
-          font-weight: 800;
-          line-height: 1;
-          letter-spacing: -0.04em;
+        button[data-baseweb="tab"]:hover {
+          color: #94a3b8 !important;
+          background: rgba(255,255,255,0.04) !important;
         }
-        .pm-muted { color: var(--pm-muted); }
-        .pm-link a {
-          color: var(--pm-text) !important;
-          text-decoration: none;
-          display: block;
-          margin-bottom: 0.45rem;
+        button[data-baseweb="tab"][aria-selected="true"] {
+          color: #818cf8 !important;
+          border-bottom-color: #818cf8 !important;
+          background: rgba(129,140,248,0.08) !important;
         }
-        .pm-link a:hover { color: var(--pm-accent-2) !important; }
-        .pm-chip {
-          display: inline-block;
-          border: 1px solid var(--pm-line);
-          border-radius: 999px;
-          padding: 0.25rem 0.65rem;
-          color: var(--pm-text);
-          background: rgba(124, 156, 255, 0.12);
-          font-size: 0.77rem;
-          font-weight: 600;
-          margin-right: 0.35rem;
+
+        /* ── Metrics ── */
+        [data-testid="stMetricLabel"] p {
+          font-size: 0.7rem !important;
+          font-weight: 700 !important;
+          text-transform: uppercase !important;
+          letter-spacing: 0.09em !important;
+          color: #475569 !important;
+        }
+        [data-testid="stMetricValue"] {
+          font-size: 1.9rem !important;
+          font-weight: 800 !important;
+          letter-spacing: -0.03em !important;
+        }
+
+        /* ── Group captions (bold markdown inside st.caption) ── */
+        [data-testid="stCaptionContainer"] p {
+          font-size: 0.72rem !important;
+          font-weight: 500 !important;
+          color: #475569 !important;
+          letter-spacing: 0.01em !important;
+        }
+        [data-testid="stCaptionContainer"] strong {
+          font-size: 0.68rem !important;
+          font-weight: 800 !important;
+          text-transform: uppercase !important;
+          letter-spacing: 0.1em !important;
+          color: #94a3b8 !important;
+        }
+
+        /* ── Buttons ── */
+        .stButton > button[kind="primary"] {
+          background: #6366f1 !important;
+          border: none !important;
+          border-radius: 8px !important;
+          font-weight: 700 !important;
+          font-size: 0.875rem !important;
+          letter-spacing: 0.02em !important;
+          box-shadow: 0 2px 8px rgba(99,102,241,0.35) !important;
+          transition: background 0.15s, box-shadow 0.15s, transform 0.1s !important;
+        }
+        .stButton > button[kind="primary"]:hover {
+          background: #4f46e5 !important;
+          box-shadow: 0 4px 16px rgba(99,102,241,0.45) !important;
+          transform: translateY(-1px) !important;
+        }
+        .stButton > button[kind="secondary"] {
+          border-radius: 8px !important;
+          font-weight: 600 !important;
+          font-size: 0.875rem !important;
+        }
+
+        /* ── Dividers ── */
+        hr {
+          border-color: rgba(255,255,255,0.07) !important;
+          margin: 1.25rem 0 !important;
+        }
+
+        /* ── Inputs ── */
+        [data-baseweb="input"] > div,
+        [data-baseweb="textarea"],
+        [data-baseweb="select"] > div {
+          border-radius: 8px !important;
+        }
+
+        /* ── Expander summary ── */
+        [data-testid="stExpander"] summary span p {
+          font-weight: 600 !important;
+          font-size: 0.875rem !important;
+          color: #64748b !important;
         }
         </style>
         """,
@@ -141,306 +199,403 @@ def _inject_styles() -> None:
     )
 
 
-def _sidebar(state: AppState) -> None:
-    with st.sidebar:
-        st.markdown("## PipelineModeling")
-        st.markdown('<div class="pm-muted">Host-local UI with Docker observability plane</div>', unsafe_allow_html=True)
-        st.divider()
+# ── file parsers ──────────────────────────────────────────────────────────────
 
-        st.markdown("**API status**")
-        if state.api.reachable:
-            st.success("Reachable")
-        else:
-            st.error("Unreachable")
-        st.markdown(f"**Model**: `{state.api.model_version}`")
-        st.markdown(f"**Loaded**: `{str(state.api.model_loaded).lower()}`")
-        st.markdown(f"**Checked**: `{_fmt_dt(state.api.checked_at)}`")
-
-        st.divider()
-        st.markdown('<div class="pm-link">', unsafe_allow_html=True)
-        st.markdown(f"[Grafana]({GRAFANA_URL})")
-        st.markdown(f"[Prometheus]({PROMETHEUS_URL})")
-        st.markdown(f"[API Docs]({API_URL}/docs)")
-        st.markdown("</div>", unsafe_allow_html=True)
-
-        st.divider()
-        if st.button("Refresh status", use_container_width=True):
-            _store_state(refresh_health(state, API_URL))
-            st.rerun()
-
-
-def _overview_cards(state: AppState) -> None:
-    col1, col2, col3, col4 = st.columns(4)
-    latest_inference = state.inference_history[-1] if state.inference_history else None
-    latest_training = state.training_history[-1] if state.training_history else None
-    latest_version = state.version_history[-1] if state.version_history else None
-
-    with col1:
-        st.markdown(
-            f'<div class="pm-card"><div class="pm-muted">API</div><div class="pm-kpi">{"UP" if state.api.reachable else "DOWN"}</div><div class="pm-muted">{state.api.model_version}</div></div>',
-            unsafe_allow_html=True,
-        )
-    with col2:
-        conf = latest_inference.confidence if latest_inference else 0.0
-        st.markdown(
-            f'<div class="pm-card"><div class="pm-muted">Latest confidence</div><div class="pm-kpi">{conf:.1%}</div><div class="pm-muted">{latest_inference.request_id if latest_inference else "No inference yet"}</div></div>',
-            unsafe_allow_html=True,
-        )
-    with col3:
-        samples = latest_training.samples if latest_training else 0
-        st.markdown(
-            f'<div class="pm-card"><div class="pm-muted">Last training batch</div><div class="pm-kpi">{samples}</div><div class="pm-muted">{_fmt_dt(latest_training.checked_at) if latest_training else "No training yet"}</div></div>',
-            unsafe_allow_html=True,
-        )
-    with col4:
-        status = latest_version.status if latest_version else "idle"
-        st.markdown(
-            f'<div class="pm-card"><div class="pm-muted">Version switch</div><div class="pm-kpi">{status}</div><div class="pm-muted">{latest_version.current_version if latest_version else "No switch yet"}</div></div>',
-            unsafe_allow_html=True,
-        )
-
-
-def _timeline_chart(state: AppState) -> None:
-    if not state.timeline:
-        st.info("No timeline samples yet. Run an inference, a training batch, or refresh the status.")
-        return
-
-    frame = pd.DataFrame([
-        {
-            "timestamp": sample.checked_at,
-            "confidence": sample.confidence,
-            "latency_ms": sample.latency_ms,
-            "training_samples": sample.training_samples,
-            "drift_score": sample.drift_score,
-            "model_loaded": sample.model_loaded,
-        }
-        for sample in state.timeline
-    ]).sort_values("timestamp")
-
-    st.line_chart(
-        frame.set_index("timestamp")[ [col for col in frame.columns if col != "timestamp"] ],
-        height=320,
-        use_container_width=True,
-    )
-
-
-def _render_probabilities(probabilities: tuple[float, ...]) -> None:
-    series = probabilities if len(probabilities) > 1 else (1.0 - probabilities[0], probabilities[0])
-    st.bar_chart(pd.DataFrame({"probability": list(series)}, index=["class 0", "class 1"]), height=180)
-
-
-def _parse_infer_csv(uploaded) -> list[list[float]]:
-    uploaded.seek(0)
-    df = pd.read_csv(uploaded)
+def _parse_infer_csv(f) -> list[list[float]]:
+    f.seek(0)
+    df = pd.read_csv(f)
     if all(str(c).replace(".", "").lstrip("-").isdigit() for c in df.columns):
-        uploaded.seek(0)
-        df = pd.read_csv(uploaded, header=None)
+        f.seek(0)
+        df = pd.read_csv(f, header=None)
     return df.iloc[:, :N_FEATURES].astype(float).values.tolist()
 
 
-def _parse_infer_json(uploaded) -> list[list[float]]:
-    uploaded.seek(0)
-    raw = json.load(uploaded)
+def _parse_infer_json(f) -> list[list[float]]:
+    f.seek(0)
+    raw = json.load(f)
     if isinstance(raw, list):
         if raw and isinstance(raw[0], dict):
-            return [[float(row.get(feature, 0.0)) for feature in FEAT_NAMES] for row in raw]
-        return [[float(value) for value in row] for row in raw]
+            return [[float(row.get(feat, 0.0)) for feat in FEAT_NAMES] for row in raw]
+        return [[float(v) for v in row] for row in raw]
     if isinstance(raw, dict) and "features" in raw:
-        return [[float(value) for value in row] for row in raw["features"]]
+        return [[float(v) for v in row] for row in raw["features"]]
     raise ValueError('JSON must be an array or {"features": [[...]]}')
 
 
-def _parse_train_csv(uploaded) -> tuple[list[list[float]], list[int]]:
-    uploaded.seek(0)
-    df = pd.read_csv(uploaded)
-    feat_cols = [column for column in df.columns if str(column).lower() != "label"][:N_FEATURES]
+def _parse_train_csv(f) -> tuple[list[list[float]], list[int]]:
+    f.seek(0)
+    df = pd.read_csv(f)
+    feat_cols = [c for c in df.columns if str(c).lower() != "label"][:N_FEATURES]
     return df[feat_cols].astype(float).values.tolist(), df["label"].astype(int).tolist()
 
 
-def _parse_train_json(uploaded) -> tuple[list[list[float]], list[int]]:
-    uploaded.seek(0)
-    raw = json.load(uploaded)
+def _parse_train_json(f) -> tuple[list[list[float]], list[int]]:
+    f.seek(0)
+    raw = json.load(f)
     if isinstance(raw, dict):
-        return [[float(value) for value in row] for row in raw["features"]], [int(value) for value in raw["labels"]]
+        return (
+            [[float(v) for v in row] for row in raw["features"]],
+            [int(v) for v in raw["labels"]],
+        )
     if isinstance(raw, list) and raw and isinstance(raw[0], dict):
         return (
-            [[float(row.get(feature, 0.0)) for feature in FEAT_NAMES] for row in raw],
+            [[float(row.get(feat, 0.0)) for feat in FEAT_NAMES] for row in raw],
             [int(row["label"]) for row in raw],
         )
     raise ValueError('JSON must be {"features":[[...]],"labels":[...]} or [{...,"label":0},...]')
 
 
-def _main_content(state: AppState) -> None:
-    st.markdown('<div class="pm-shell">', unsafe_allow_html=True)
-    st.markdown('<div class="pm-title">PipelineModeling</div>', unsafe_allow_html=True)
-    st.markdown(
-        '<div class="pm-subtitle">Declarative UI · host-local runtime · Docker observability plane</div>',
-        unsafe_allow_html=True,
+# ── sidebar ───────────────────────────────────────────────────────────────────
+
+def _sidebar(state: AppState) -> None:
+    with st.sidebar:
+        st.title("PipelineModeling")
+        st.caption("Breast Cancer Wisconsin · SGDClassifier · MLflow")
+        st.divider()
+
+        st.subheader("API")
+        if state.api.reachable:
+            st.success("Online")
+        else:
+            st.error("Offline")
+        st.metric("Version", state.api.model_version or "—")
+        st.metric("Model loaded", "Yes" if state.api.model_loaded else "No")
+
+        if st.button("Refresh status", use_container_width=True):
+            _save(refresh_health(state, API_URL))
+            st.rerun()
+
+        if state.last_error:
+            st.error(state.last_error)
+
+        st.divider()
+
+        st.subheader("Links")
+        st.markdown(
+            "[📚 API Swagger](http://localhost:8000/docs)  \n"
+            "[❤️ API Health](http://localhost:8000/health)  \n"
+            "[🧪 MLflow UI](http://localhost:5000)  \n"
+            "[📊 Grafana](http://localhost:3000)  \n"
+            "[📈 Prometheus](http://localhost:9090)  \n"
+            "[🔭 OTel zPages](http://localhost:55679/debug/tracez)"
+        )
+
+
+# ── inference tab ─────────────────────────────────────────────────────────────
+
+def _tab_inference(state: AppState) -> None:
+    mode = st.radio(
+        "infer_mode",
+        ["Form", "File upload"],
+        horizontal=True,
+        label_visibility="collapsed",
     )
 
-    chips = [
-        f"API: {'up' if state.api.reachable else 'down'}",
-        f"model: {state.api.model_version}",
-        f"inferences: {len(state.inference_history)}",
-        f"trainings: {len(state.training_history)}",
-        f"versions: {len(state.version_history)}",
-    ]
-    st.markdown("".join(f'<span class="pm-chip">{chip}</span>' for chip in chips), unsafe_allow_html=True)
-
-    if state.last_error:
-        st.error(state.last_error)
-
-    _overview_cards(state)
-    st.divider()
-    _timeline_chart(state)
-    st.divider()
-
-    tab_infer, tab_train, tab_version = st.tabs(["Inference", "Training", "Versioning"])
-
-    with tab_infer:
-        inference_mode = st.radio(
-            "input_mode",
-            ["Form", "Upload file (JSON / CSV)"],
-            horizontal=True,
-            label_visibility="collapsed",
-            index=0 if state.inference_mode == "Form" else 1,
-            key="pm_inference_mode",
-        )
-        if inference_mode != state.inference_mode:
-            _store_state(set_inference_mode(state, inference_mode))
-            state = _load_state()
-
-        if inference_mode == "Form":
+    if mode == "Form":
+        features: list[float] = []
+        for group_name, group_feats in _GROUPS.items():
+            st.caption(f"**{group_name} features**")
             cols = st.columns(5)
-            features: list[float] = []
-            for index in range(N_FEATURES):
-                with cols[index % 5]:
-                    features.append(st.number_input(f"f{index}", value=0.0, step=0.1, format="%.3f", key=f"if_{index}"))
+            for j, fname in enumerate(group_feats):
+                with cols[j % 5]:
+                    features.append(
+                        st.number_input(fname, value=0.0, step=0.01, format="%.4f", key=f"if_{fname}")
+                    )
 
-            request_id = st.text_input("Request ID (optional)", placeholder="leave blank for auto-generated", key="if_req_id")
-            if st.button("Run Inference", type="primary", use_container_width=True):
-                new_state = run_inference(_load_state(), API_URL, features, request_id or None)
-                _store_state(new_state)
-                st.rerun()
+        req_id = st.text_input("Request ID", placeholder="optional — leave blank for auto", key="if_rid")
+        if st.button("Run inference", type="primary", use_container_width=True):
+            _save(run_inference(_load(), API_URL, features, req_id or None))
+            st.rerun()
 
-            if state.inference_history:
-                latest = state.inference_history[-1]
-                metric_col, chart_col = st.columns([1, 2])
-                with metric_col:
-                    st.metric("Prediction", latest.prediction)
-                    st.metric("Confidence", f"{latest.confidence:.1%}")
-                    st.caption(f"Request {latest.request_id}")
-                with chart_col:
-                    _render_probabilities(latest.probabilities)
-        else:
-            left, right = st.columns(2)
-            with left:
-                st.info("CSV with 30 numeric columns or JSON array / {\"features\": [...]}.")
-            with right:
-                rng = np.random.default_rng(0)
-                sample_df = pd.DataFrame(rng.standard_normal((5, N_FEATURES)), columns=FEAT_NAMES)
-                st.download_button("Download sample CSV", sample_df.to_csv(index=False), file_name="sample_inference.csv", mime="text/csv", use_container_width=True)
-                st.download_button("Download sample JSON", json.dumps({"features": sample_df.values.tolist()}, indent=2), file_name="sample_inference.json", mime="application/json", use_container_width=True)
+    else:
+        with st.expander("Download templates"):
+            rng = np.random.default_rng(0)
+            sample_df = pd.DataFrame(rng.standard_normal((5, N_FEATURES)), columns=FEAT_NAMES)
+            c1, c2 = st.columns(2)
+            c1.download_button(
+                "CSV template", sample_df.to_csv(index=False),
+                "infer_template.csv", "text/csv", use_container_width=True,
+            )
+            c2.download_button(
+                "JSON template",
+                json.dumps({"features": sample_df.values.tolist()}, indent=2),
+                "infer_template.json", "application/json", use_container_width=True,
+            )
 
-            uploaded = st.file_uploader("Drop CSV or JSON here", type=["csv", "json"], key="upload_infer")
-            if uploaded:
-                try:
-                    samples = _parse_infer_csv(uploaded) if uploaded.name.lower().endswith(".csv") else _parse_infer_json(uploaded)
-                    if st.button("Run Batch Inference", type="primary", use_container_width=True):
-                        for index, sample in enumerate(samples):
-                            _store_state(run_inference(_load_state(), API_URL, sample, str(index)))
-                        st.rerun()
-                    st.success(f"Loaded {len(samples)} samples from {uploaded.name}")
-                except Exception as exc:
-                    st.error(f"Could not parse file: {exc}")
+        uploaded = st.file_uploader("Upload CSV or JSON (30 features per row)", type=["csv", "json"], key="up_infer")
+        if uploaded:
+            try:
+                samples = (
+                    _parse_infer_csv(uploaded)
+                    if uploaded.name.endswith(".csv")
+                    else _parse_infer_json(uploaded)
+                )
+                st.caption(f"{len(samples)} sample(s) ready")
+                if st.button("Run batch inference", type="primary", use_container_width=True):
+                    for i, s in enumerate(samples):
+                        _save(run_inference(_load(), API_URL, s, str(i)))
+                    st.rerun()
+            except Exception as exc:
+                st.error(str(exc))
 
-    with tab_train:
-        training_mode = st.radio(
-            "train_source",
-            ["Upload labeled file (CSV / JSON)", "Generate synthetic batch"],
-            horizontal=True,
-            label_visibility="collapsed",
-            index=0 if state.training_mode == "Upload labeled file (CSV / JSON)" else 1,
-            key="pm_training_mode",
+    if state.inference_history:
+        latest = state.inference_history[-1]
+        st.divider()
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Prediction", "Benign" if latest.prediction == 1 else "Malignant")
+        c2.metric("Confidence", f"{latest.confidence:.1%}")
+        c3.metric("Request ID", latest.request_id)
+        st.bar_chart(
+            pd.DataFrame(
+                {"Probability": list(latest.probabilities)},
+                index=["Class 0 — Malignant", "Class 1 — Benign"],
+            ),
+            height=150,
+            use_container_width=True,
         )
-        if training_mode != state.training_mode:
-            _store_state(set_training_mode(state, training_mode))
-            state = _load_state()
 
-        if training_mode == "Upload labeled file (CSV / JSON)":
-            left_t, right_t = st.columns(2)
-            with left_t:
-                st.info("CSV with 30 features plus label, or JSON {\"features\": [...], \"labels\": [...]}.")
-            with right_t:
-                rng = np.random.default_rng(7)
-                sample_features = rng.standard_normal((6, N_FEATURES))
-                sample_labels = (sample_features[:, 0] + 0.5 * sample_features[:, 1] > 0.3).astype(int)
-                sample_df = pd.DataFrame(sample_features, columns=FEAT_NAMES)
-                sample_df["label"] = sample_labels
-                st.download_button("Download sample training CSV", sample_df.to_csv(index=False), file_name="sample_training.csv", mime="text/csv", use_container_width=True)
-                st.download_button("Download sample training JSON", json.dumps({"features": sample_features.tolist(), "labels": sample_labels.tolist()}, indent=2), file_name="sample_training.json", mime="application/json", use_container_width=True)
+    if len(state.inference_history) > 1:
+        st.divider()
+        st.caption("History (last 32)")
+        st.dataframe(
+            pd.DataFrame([
+                {
+                    "time": _hms(r.checked_at),
+                    "prediction": "Benign" if r.prediction == 1 else "Malignant",
+                    "confidence": f"{r.confidence:.1%}",
+                    "id": r.request_id,
+                }
+                for r in reversed(state.inference_history)
+            ]),
+            use_container_width=True,
+            hide_index=True,
+        )
 
-            uploaded = st.file_uploader("Drop labeled CSV or JSON here", type=["csv", "json"], key="upload_train")
-            if uploaded:
-                try:
-                    features, labels = _parse_train_csv(uploaded) if uploaded.name.lower().endswith(".csv") else _parse_train_json(uploaded)
-                    if st.button("Train Model", type="primary", use_container_width=True):
-                        _store_state(run_training(_load_state(), API_URL, features, labels))
-                        st.rerun()
-                    st.success(f"Loaded {len(features)} samples")
-                except Exception as exc:
-                    st.error(f"Could not parse file: {exc}")
-        else:
-            col_a, col_b, col_c = st.columns(3)
-            batch_size = col_a.slider("Batch size", 10, 2000, 200, 10)
-            random_seed = col_b.number_input("Random seed", value=42, min_value=0, step=1)
-            noise = col_c.slider("Noise level", 0.0, 2.0, 0.5, 0.1)
-            rng = np.random.default_rng(int(random_seed))
-            features = rng.standard_normal((batch_size, N_FEATURES))
-            label_noise = rng.standard_normal(batch_size) * noise
-            labels = (features[:, 0] + 0.5 * features[:, 1] + 0.25 * features[:, 2] + label_noise > 0.5).astype(int)
-            preview = pd.DataFrame(features[:5], columns=FEAT_NAMES)
-            preview.insert(0, "#", range(5))
-            preview["label"] = labels[:5]
-            st.dataframe(preview, use_container_width=True, hide_index=True)
-            if st.button("Train on synthetic batch", type="primary", use_container_width=True):
-                _store_state(run_training(_load_state(), API_URL, features.tolist(), labels.tolist()))
-                st.rerun()
 
-    with tab_version:
-        left_v, right_v = st.columns([3, 2])
-        with left_v:
-            st.markdown("**Active model version**")
-            st.code(state.api.model_version, language=None)
-            git_ref = st.text_input("git_ref", placeholder="v1.0.0 · main · abc1234", label_visibility="collapsed", key="ver_ref")
-            if st.button("Switch Version", type="primary", disabled=not bool(git_ref), use_container_width=True):
-                _store_state(switch_version(_load_state(), API_URL, git_ref))
-                _store_state(sync_current_version(_load_state(), API_URL))
-                st.rerun()
-        with right_v:
-            st.markdown("**Continuous status**")
-            series = pd.DataFrame([
-                {"timestamp": sample.checked_at, "model_loaded": sample.model_loaded or 0, "confidence": sample.confidence, "training_samples": sample.training_samples or 0}
-                for sample in state.timeline
-            ])
-            if not series.empty:
-                st.line_chart(series.set_index("timestamp"), height=240, use_container_width=True)
-            else:
-                st.info("No continuous state yet.")
+# ── training tab ──────────────────────────────────────────────────────────────
 
-    st.markdown("</div>", unsafe_allow_html=True)
+def _tab_training(state: AppState) -> None:
+    mode = st.radio(
+        "train_mode",
+        ["File upload", "Synthetic batch"],
+        horizontal=True,
+        label_visibility="collapsed",
+    )
 
+    if mode == "File upload":
+        with st.expander("Download templates"):
+            rng = np.random.default_rng(7)
+            feats = rng.standard_normal((6, N_FEATURES))
+            labs = (feats[:, 0] > 0).astype(int)
+            df = pd.DataFrame(feats, columns=FEAT_NAMES)
+            df["label"] = labs
+            c1, c2 = st.columns(2)
+            c1.download_button(
+                "CSV template", df.to_csv(index=False),
+                "train_template.csv", "text/csv", use_container_width=True,
+            )
+            c2.download_button(
+                "JSON template",
+                json.dumps({"features": feats.tolist(), "labels": labs.tolist()}, indent=2),
+                "train_template.json", "application/json", use_container_width=True,
+            )
+
+        uploaded = st.file_uploader(
+            "Upload labeled CSV or JSON (30 features + label column, 0=malignant 1=benign)",
+            type=["csv", "json"],
+            key="up_train",
+        )
+        if uploaded:
+            try:
+                features, labels = (
+                    _parse_train_csv(uploaded)
+                    if uploaded.name.endswith(".csv")
+                    else _parse_train_json(uploaded)
+                )
+                n0, n1 = labels.count(0), labels.count(1)
+                st.caption(f"{len(features)} samples — class 0 (malignant): {n0}, class 1 (benign): {n1}")
+                if st.button("Train", type="primary", use_container_width=True):
+                    _save(run_training(_load(), API_URL, features, labels))
+                    st.rerun()
+            except Exception as exc:
+                st.error(str(exc))
+
+    else:
+        c1, c2, c3 = st.columns(3)
+        batch_size = c1.slider("Batch size", 10, 2000, 200, 10)
+        seed = int(c2.number_input("Seed", value=42, min_value=0, step=1))
+        noise = c3.slider("Noise", 0.0, 2.0, 0.5, 0.1)
+
+        rng = np.random.default_rng(seed)
+        feats = rng.standard_normal((batch_size, N_FEATURES))
+        labs = (
+            feats[:, 0] + 0.5 * feats[:, 1] + 0.25 * feats[:, 2]
+            + rng.standard_normal(batch_size) * noise > 0.5
+        ).astype(int)
+        n0, n1 = int((labs == 0).sum()), int((labs == 1).sum())
+        st.caption(f"{batch_size} samples — class 0: {n0}, class 1: {n1}")
+
+        if st.button("Train on synthetic batch", type="primary", use_container_width=True):
+            _save(run_training(_load(), API_URL, feats.tolist(), labs.tolist()))
+            st.rerun()
+
+    if state.training_history:
+        latest = state.training_history[-1]
+        st.divider()
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Samples trained", latest.samples)
+        c2.metric("Model version", latest.model_version)
+        c3.metric("Class split (0:1)", f"{latest.class_zero}:{latest.class_one}")
+
+    if len(state.training_history) > 1:
+        st.divider()
+        st.caption("History (last 32)")
+        st.dataframe(
+            pd.DataFrame([
+                {
+                    "time": _hms(r.checked_at),
+                    "samples": r.samples,
+                    "class_0": r.class_zero,
+                    "class_1": r.class_one,
+                    "version": r.model_version,
+                }
+                for r in reversed(state.training_history)
+            ]),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+
+# ── versioning tab ────────────────────────────────────────────────────────────
+
+def _tab_versioning(state: AppState) -> None:
+    c1, c2 = st.columns([1, 2])
+
+    with c1:
+        st.metric("Active version", state.api.model_version or "—")
+        st.metric("Model loaded", "Yes" if state.api.model_loaded else "No")
+
+    with c2:
+        ref = st.text_input(
+            "Switch to version or alias",
+            placeholder="1 · 2 · Production · Staging",
+            key="ver_ref",
+        )
+        if st.button("Switch version", type="primary", disabled=not bool(ref), use_container_width=True):
+            _save(switch_version(_load(), API_URL, ref))
+            _save(sync_current_version(_load(), API_URL))
+            st.rerun()
+
+    if state.version_history:
+        st.divider()
+        st.caption("Switch history (last 32)")
+        st.dataframe(
+            pd.DataFrame([
+                {
+                    "time": _hms(r.checked_at),
+                    "from": r.previous_version,
+                    "to": r.current_version,
+                    "status": r.status,
+                }
+                for r in reversed(state.version_history)
+            ]),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+
+# ── chaos / debug tab ─────────────────────────────────────────────────────────
+
+def _tab_debug(state: AppState) -> None:
+    st.caption("Requires `ENABLE_DEBUG_ENDPOINTS=true` in the API container. Changes take effect immediately on live inference.")
+
+    current = state.chaos_history[-1].inference_error_rate if state.chaos_history else 0.0
+    c1, c2 = st.columns([1, 2])
+
+    c1.metric("Active error injection rate", f"{current:.0%}")
+
+    with c2:
+        rate = st.slider(
+            "Inject error rate",
+            min_value=0.0,
+            max_value=1.0,
+            value=current,
+            step=0.05,
+            format="%.0f%%",
+            key="chaos_slider",
+        )
+        b1, b2, b3 = st.columns(3)
+        if b1.button("Apply", type="primary", use_container_width=True):
+            _save(apply_chaos(_load(), API_URL, rate))
+            st.rerun()
+        if b2.button("Reset to 0%", use_container_width=True):
+            _save(clear_chaos(_load(), API_URL))
+            st.rerun()
+        if b3.button("Fetch state", use_container_width=True):
+            _save(refresh_chaos(_load(), API_URL))
+            st.rerun()
+
+    if state.chaos_history:
+        st.divider()
+        st.dataframe(
+            pd.DataFrame([
+                {"time": _hms(r.checked_at), "rate": f"{r.inference_error_rate:.0%}"}
+                for r in reversed(state.chaos_history)
+            ]),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+
+# ── entry point ───────────────────────────────────────────────────────────────
 
 def run() -> None:
-    st.set_page_config(page_title="PipelineModeling", page_icon="⚡", layout="wide", initial_sidebar_state="expanded")
+    st.set_page_config(
+        page_title="PipelineModeling",
+        page_icon="⚡",
+        layout="wide",
+        initial_sidebar_state="expanded",
+    )
     _inject_styles()
-    current_state = _load_state()
-    if not current_state.api.reachable:
-        current_state = refresh_health(current_state, API_URL)
-        _store_state(current_state)
-    else:
-        current_state = sync_current_version(current_state, API_URL)
-        _store_state(current_state)
 
-    _sidebar(current_state)
-    _main_content(current_state)
+    state = _load()
+    if not state.api.reachable:
+        state = refresh_health(state, API_URL)
+        _save(state)
+    else:
+        state = sync_current_version(state, API_URL)
+        _save(state)
+
+    _sidebar(state)
+
+    st.markdown(
+        """
+        <div style="margin:0 0 1.75rem; padding-bottom:1.5rem; border-bottom:1px solid rgba(255,255,255,0.07)">
+          <h1 style="font-size:2.3rem;font-weight:800;letter-spacing:-0.05em;color:#f1f5f9;margin:0 0 0.3rem;line-height:1.1">
+            PipelineModeling
+          </h1>
+          <p style="font-size:0.875rem;color:#64748b;font-weight:500;margin:0;letter-spacing:0.01em">
+            Breast Cancer Wisconsin &nbsp;·&nbsp; SGDClassifier &nbsp;·&nbsp; MLflow &nbsp;·&nbsp; OpenTelemetry
+          </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("API", "Online" if state.api.reachable else "Offline")
+    c2.metric("Active version", state.api.model_version or "—")
+    c3.metric("Inferences", len(state.inference_history))
+    c4.metric("Training rounds", len(state.training_history))
+    st.divider()
+
+    tab_infer, tab_train, tab_ver, tab_debug = st.tabs(
+        ["Inference", "Training", "Versioning", "Chaos / Debug"]
+    )
+    with tab_infer:
+        _tab_inference(state)
+    with tab_train:
+        _tab_training(state)
+    with tab_ver:
+        _tab_versioning(state)
+    with tab_debug:
+        _tab_debug(state)

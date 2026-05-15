@@ -22,17 +22,18 @@ on:
 
 env:
   PYTHON_VERSION: "3.11"
-  # Fallback a almacenamiento local si el secreto MLFLOW_TRACKING_URI no está aprovisionado
-  MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI || 'file:///tmp/mlruns' }}
   MLFLOW_MODEL_NAME: pipeline-model
 
 jobs:
   retrain:
     name: Train · Validate · Publish
     runs-on: ubuntu-latest
+    env:
+      MLFLOW_TRACKING_URI: file:///tmp/mlruns
+      RELEASE_TAG: ""
 
     steps:
-      - name: Checkout
+      - name: Checkout code 
         uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Requisito para referenciar historial en tags de Git
@@ -54,8 +55,8 @@ jobs:
       - name: Validate metrics
         id: validate
         env:
-          MIN_ACCURACY: ${{ inputs.min_accuracy || '0.80' }}
-          MIN_F1:       ${{ inputs.min_f1 || '0.80' }}
+          MIN_ACCURACY: ${{ github.event.inputs.min_accuracy || '0.80' }}
+          MIN_F1: ${{ github.event.inputs.min_f1 || '0.80' }}
         run: |
           python - <<'PYEOF'
           import json, os, sys

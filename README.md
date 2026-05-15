@@ -85,9 +85,9 @@ python manage.py simulate --scenario chaos                      Inyectar errores
 python manage.py simulate --scenario all                        Ejecutar todos los escenarios
 ```
 
-**Suite de Tests**:
-- **95 unit tests**: Métricas OTel, DriftTracker, ModelManager, API endpoints, validación de schemas
-- **17 integration tests**: Observabilidad completa (Collector → Prometheus → Grafana)
+**Suite de Tests** — ver [docs/testing.md](docs/testing.md):
+- Tests unitarios: health, inference, training, versioning, metrics, flow
+- Tests de integración de observabilidad: Collector → Prometheus → Grafana (requieren stack Docker)
 
 ---
 
@@ -95,16 +95,16 @@ python manage.py simulate --scenario all                        Ejecutar todos l
 
 | Documento | Contenido |
 |---|---|
-| [docs/dataset.md](docs/dataset.md) | Dataset, CRISP-DM, análisis exploratorio, métricas del modelo |
-| [docs/crisp-dm.md](docs/crisp-dm.md) | Metodología CRISP-DM aplicada paso a paso al proyecto |
-| [docs/setup.md](docs/setup.md) | Prerrequisitos, primera configuración, variables de entorno |
 | [docs/architecture.md](docs/architecture.md) | Arquitectura detallada, PipelineMetrics, DriftTracker, MLflow |
 | [docs/api.md](docs/api.md) | Referencia completa de endpoints con ejemplos de 30 features |
+| [docs/dataset.md](docs/dataset.md) | Dataset, CRISP-DM, análisis exploratorio, métricas del modelo |
+| [docs/crisp-dm.md](docs/crisp-dm.md) | Metodología CRISP-DM aplicada paso a paso al proyecto |
 | [docs/versioning.md](docs/versioning.md) | Flujo MLflow + GitHub Actions, hot-swap, rollback |
 | [docs/monitoring.md](docs/monitoring.md) | Métricas OTel, OTel Collector, exportadores SaaS |
-| [docs/testing.md](docs/testing.md) | Suite de tests unitarios e integración (95 tests) |
-| [docs/testing-observability.md](docs/testing-observability.md) | Tests de observabilidad (17 tests Prometheus/Grafana) |
+| [docs/testing.md](docs/testing.md) | Suite completa de tests: unitarios, integración y observabilidad (Prometheus/Grafana) |
+| [docs/setup.md](docs/setup.md) | Prerrequisitos, primera configuración, variables de entorno |
 | [docs/development.md](docs/development.md) | Flujo de desarrollo, Docker Compose, solución de problemas |
+| [docs/cicd.md](docs/cicd.md) | Pipeline CI/CD — retrain, validate, publish |
 
 ---
 
@@ -130,7 +130,7 @@ PipelineModeling/
 │   │   └── schemas/              # InferenceRequest/Response, TrainingRequest/Response
 │   ├── frontend/
 │   │   ├── app.py                # Punto de entrada Streamlit (wrapper limpio)
-│   │   ├── runtime.py            # UI declarativa Streamlit (3 tabs)
+│   │   ├── runtime.py            # UI declarativa Streamlit (4 tabs: Inference · Training · Versioning · Metrics & Debug)
 │   │   ├── controller.py         # Lógica de negocio (orquestación)
 │   │   ├── network.py            # Límite de red (async/sync bridge)
 │   │   └── domain.py             # Modelo de estado inmutable

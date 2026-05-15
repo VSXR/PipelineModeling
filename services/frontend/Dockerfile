@@ -1,5 +1,6 @@
 # ══════════════════════════════════════════════════════════════════════
 #  Frontend — Streamlit
+#  Build context: ./services  (includes both frontend/ and wrapper/)
 # ══════════════════════════════════════════════════════════════════════
 FROM python:3.11-slim
 
@@ -11,10 +12,11 @@ RUN useradd --create-home --shell /bin/bash appuser
 
 WORKDIR /app
 
-COPY requirements.txt .
+COPY frontend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+COPY frontend/ ./frontend/
+COPY wrapper/ ./wrapper/
 
 RUN chown -R appuser:appuser /app
 
@@ -25,7 +27,7 @@ EXPOSE 8501
 HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -sf http://localhost:8501/_stcore/health || exit 1
 
-CMD ["streamlit", "run", "app.py", \
+CMD ["streamlit", "run", "frontend/app.py", \
      "--server.address=0.0.0.0", \
      "--server.port=8501", \
      "--server.headless=true", \
