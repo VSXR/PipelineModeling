@@ -18,7 +18,7 @@ env:
 
 defaults:
   run:
-    shell: pwsh
+    shell: pwsh -NoProfile -NonInteractive {0}
 
 jobs:
   train:
