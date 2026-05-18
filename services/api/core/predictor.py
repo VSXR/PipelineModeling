@@ -78,4 +78,6 @@ class SKLearnPredictor(BasePredictor):
 
     @classmethod
     def create_default(cls) -> "SKLearnPredictor":
-        return cls(SGDClassifier(loss="log_loss", random_state=42))
+        clf = SGDClassifier(loss="log_loss", random_state=42)
+        clf.partial_fit(np.zeros((2, 30)), np.array([0, 1]), classes=[0, 1])
+        return cls(clf)

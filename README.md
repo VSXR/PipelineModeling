@@ -1,6 +1,6 @@
 # PipelineModeling
 
-Sistema de aprendizaje continuo para clasificación binaria. Implementa el ciclo completo de CRISP-DM sobre el dataset **Breast Cancer Wisconsin**: inferencia en tiempo real, reentrenamiento incremental (`partial_fit`), versionado de artefactos con MLflow Model Registry, telemetría con OpenTelemetry y CI/CD con GitHub Actions.
+Sistema de aprendizaje continuo para clasificación binaria. Implementa el ciclo completo de CRISP-DM sobre el dataset **Breast Cancer Wisconsin**: inferencia en tiempo real, reentrenamiento incremental (`partial_fit`), versionado de artefactos con MLflow Model Registry, telemetría con OpenTelemetry, observabilidad con Prometheus + Grafana y CI/CD con GitHub Actions.
 
 ---
 
@@ -10,7 +10,7 @@ Sistema de aprendizaje continuo para clasificación binaria. Implementa el ciclo
 # 1. Primera vez: crea .venv, instala dependencias y entrena el modelo inicial
 python manage.py setup
 
-# 2. Arranca el stack completo (Docker: MLflow · OTel Collector; Local: API · Frontend · Seeder)
+# 2. Arranca el stack completo
 python manage.py start
 
 # 3. Cuando termines
@@ -19,16 +19,19 @@ python manage.py stop
 
 | URL | Servicio |
 |---|---|
-| http://localhost:8501 | Frontend — panel de control |
+| http://localhost:8501 | Frontend — panel de control MLOps |
 | http://localhost:8000/docs | API — Swagger UI |
-| http://localhost:5000 | MLflow — Model Registry |
+| http://localhost:5000 | MLflow — Model Registry y Tracking |
+| http://localhost:3000 | Grafana — dashboards de observabilidad |
+| http://localhost:9090 | Prometheus — consultas de métricas |
 | http://localhost:55679 | OTel Collector — zPages |
+| http://localhost:13133 | OTel Collector — healthcheck extension |
 
 ---
 
 ## Dataset
 
-El proyecto usa el **Breast Cancer Wisconsin (Diagnostic)** dataset:
+Breast Cancer Wisconsin (Diagnostic):
 
 | Propiedad | Valor |
 |---|---|
@@ -36,9 +39,6 @@ El proyecto usa el **Breast Cancer Wisconsin (Diagnostic)** dataset:
 | Muestras | 569 |
 | Features | 30 (medidas de núcleos celulares) |
 | Clases | 0 = maligno, 1 = benigno |
-| Métricas baseline | accuracy ≈ 0.833, f1 ≈ 0.857 |
-
-Ver [docs/dataset.md](docs/dataset.md) para la documentación completa del dataset y la metodología CRISP-DM.
 
 ---
 
@@ -51,36 +51,48 @@ graph LR
     API["API\nFastAPI :8000"]
     OTEL["OTel Collector\n:4317 gRPC"]
     MLF["MLflow\n:5000"]
-    GH["GitHub Actions\nCI/CD"]
+    GH["GitHub Actions\nCI · CT · CD"]
 
     FE -->|HTTP| API
     SE -->|HTTP| API
     API -->|OTLP gRPC| OTEL
-    OTEL -.->|stdout JSON| OTEL
-    API -->|load_model| MLF
+    API -->|MLflow client| MLF
     GH -->|log_model| MLF
     GH -->|Docker GHCR| API
 ```
 
-Cinco componentes: **API** (FastAPI + SGDClassifier vía `BasePredictor`), **Frontend** (Streamlit), **Seeder** (tráfico sintético + drift), **MLflow** (Model Registry), **OTel Collector** (telemetría). En modo local, los tres primeros corren en `.venv`; MLflow y el Collector en Docker.
+Cinco componentes: **API** (FastAPI + SGDClassifier vía `BasePredictor`), **Frontend** (Streamlit), **Seeder** (tráfico sintético + drift), **MLflow** (Model Registry), **OTel Collector** (telemetría).
+
+---
+
+## Pipeline de entrenamiento
+
+El entrenamiento está encapsulado en dos clases (`model/trainer.py`, `model/promote.py`):
+
+```
+ModelTrainer.train()  →  registra run en MLflow (params + 5 métricas + tags git)
+                      →  asigna alias "Staging" en Model Registry
+ModelPromoter.promote() →  valida accuracy ≥ 0.85 · f1 ≥ 0.82 · roc_auc ≥ 0.90
+                        →  asigna alias "Production" si supera umbrales
+```
 
 ---
 
 ## CLI `manage.py`
 
 ```
-python manage.py setup                                          Primera configuración
-python manage.py start                                          Arrancar todo el workspace
-python manage.py stop                                           Parar todos los servicios
-python manage.py status                                         Estado de los servicios
-python manage.py test                                           Suite completa de tests
-python manage.py test --unit                                    Solo tests unitarios (sin API)
-python manage.py test --integration                             Solo tests de integración (requiere API)
-python manage.py simulate --scenario drift                      Simular deriva de datos (7 min)
-python manage.py simulate --scenario version-fail               Simular fallo de cambio de versión
-python manage.py simulate --scenario training-errors            Simular errores de entrenamiento (7 min)
-python manage.py simulate --scenario chaos                      Inyectar errores en inferencias (4 min)
-python manage.py simulate --scenario all                        Ejecutar todos los escenarios
+python manage.py setup                                     Primera configuración
+python manage.py start                                     Arrancar todo el workspace
+python manage.py stop                                      Parar todos los servicios
+python manage.py status                                    Estado de los servicios
+python manage.py test                                      Suite completa de pytest
+python manage.py test --unit                               Solo tests unitarios (sin API)
+python manage.py test --integration                        Solo tests de integración
+python manage.py simulate --scenario drift                 Simular deriva de datos
+python manage.py simulate --scenario version-fail          Simular fallo de cambio de versión
+python manage.py simulate --scenario training-errors       Simular errores de entrenamiento
+python manage.py simulate --scenario chaos                 Inyectar errores en inferencias
+python manage.py simulate --scenario all                   Todos los escenarios
 ```
 
 ---
@@ -89,15 +101,16 @@ python manage.py simulate --scenario all                        Ejecutar todos l
 
 | Documento | Contenido |
 |---|---|
-| [docs/dataset.md](docs/dataset.md) | Dataset, CRISP-DM, análisis exploratorio, métricas del modelo |
-| [docs/crisp-dm.md](docs/crisp-dm.md) | Metodología CRISP-DM aplicada paso a paso al proyecto |
+| [docs/architecture.md](docs/architecture.md) | Componentes, ModelManager, PipelineMetrics, DriftTracker, sincronización MLflow ↔ Docker |
+| [docs/cicd.md](docs/cicd.md) | Workflows `ci.yml`, `ct.yml`, `cd.yml` — triggers, umbrales, configuración de secretos |
+| [docs/versioning.md](docs/versioning.md) | `ModelTrainer`, `ModelPromoter`, aliases MLflow, hot-swap, rollback |
+| [docs/api.md](docs/api.md) | Referencia completa de endpoints con ejemplos |
+| [docs/monitoring.md](docs/monitoring.md) | Métricas OTel, OTel Collector, exportadores |
+| [docs/testing.md](docs/testing.md) | Suite de tests: unitarios, integración, observabilidad (Prometheus/Grafana) |
 | [docs/setup.md](docs/setup.md) | Prerrequisitos, primera configuración, variables de entorno |
-| [docs/architecture.md](docs/architecture.md) | Arquitectura detallada, PipelineMetrics, DriftTracker, MLflow |
-| [docs/api.md](docs/api.md) | Referencia completa de endpoints con ejemplos de 30 features |
-| [docs/versioning.md](docs/versioning.md) | Flujo MLflow + GitHub Actions, hot-swap, rollback |
-| [docs/monitoring.md](docs/monitoring.md) | Métricas OTel, OTel Collector, exportadores SaaS |
-| [docs/testing.md](docs/testing.md) | Suite de tests, cómo ejecutarlos, cómo añadir nuevos |
-| [docs/development.md](docs/development.md) | Flujo de desarrollo, Docker Compose, solución de problemas |
+| [docs/development.md](docs/development.md) | Flujo de desarrollo, Docker Compose, resolución de problemas |
+| [docs/dataset.md](docs/dataset.md) | Dataset Breast Cancer Wisconsin, análisis exploratorio |
+| [docs/crisp-dm.md](docs/crisp-dm.md) | Metodología CRISP-DM aplicada al proyecto |
 
 ---
 
@@ -105,28 +118,29 @@ python manage.py simulate --scenario all                        Ejecutar todos l
 
 ```
 PipelineModeling/
-├── manage.py                     # CLI unificado (setup · start · stop · status · test · simulate)
-├── docker-compose.yml            # Stack Docker (MLflow · OTel Collector · API · Seeder · Frontend)
+├── manage.py                     # CLI unificado
+├── docker-compose.yml            # Stack Docker (MLflow · OTel · API · Frontend · Seeder)
 ├── .env.example
 ├── model/
-│   ├── train.py                  # Entrenamiento (breast_cancer, 30 features, SGDClassifier)
-│   ├── metrics.json              # accuracy, f1, precision, recall
-│   └── weights/model.pkl         # Artefacto (.gitignore, gestionado por MLflow)
+│   ├── trainer.py                # ModelTrainer (train + MLflow log + alias Staging)
+│   ├── promote.py                # ModelPromoter (valida umbrales + alias Production)
+│   ├── train.py                  # Entry point: orquesta ModelTrainer + ModelPromoter
+│   ├── requirements.txt
+│   ├── metrics.json
+│   └── weights/model.pkl
 ├── services/
-│   ├── api/
-│   │   ├── core/
-│   │   │   ├── predictor.py      # BasePredictor ABC + SKLearnPredictor
-│   │   │   ├── drift.py          # DriftTracker singleton (EMA, OTel emission)
-│   │   │   ├── metrics.py        # PipelineMetrics facade (OTel MeterProvider)
-│   │   │   └── model_manager.py  # Singleton; asyncio locks; hot-swap MLflow
-│   │   ├── routers/              # inference · training · versioning
-│   │   └── schemas/              # InferenceRequest/Response, TrainingRequest/Response
-│   ├── frontend/app.py           # Streamlit (3 tabs: inferencia, entrenamiento, versiones)
-│   ├── seeder/seeder.py          # 3 corutinas async: infer, train, drift
-│   └── wrapper/client.py         # PipelineClient (async context manager)
+│   ├── api/                      # FastAPI: inference · training · versioning
+│   ├── frontend/                 # Streamlit: 4 tabs (Inference · Training · Versioning · Metrics)
+│   ├── seeder/                   # Tráfico sintético + drift
+│   └── wrapper/                  # PipelineClient async
 ├── monitoring/
-│   └── otel-collector/           # otel-collector.yml (OTLP receivers + stdout/SaaS exporters)
-├── .github/workflows/            # retrain.yml · deploy.yml (CI/CD)
-├── tests/                        # pytest: unit (no infra) + integration (requiere API)
-└── docs/                         # Documentación completa
+│   ├── otel-collector/
+│   ├── prometheus/
+│   └── grafana/
+├── .github/workflows/
+│   ├── ci.yml                    # Lint (ruff) + tests unitarios
+│   ├── ct.yml                    # Entrenamiento continuo + promote + GitHub Release
+│   └── cd.yml                    # Build Docker + push GHCR + smoke test
+├── tests/                        # pytest: unitarios + observabilidad
+└── docs/
 ```

@@ -5,7 +5,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class VersionSwitchRequest(BaseModel):
     model_config = ConfigDict(
-        json_schema_extra={"example": {"model_ref": "Production"}}
+        protected_namespaces=(),
+        json_schema_extra={"example": {"model_ref": "Production"}},
     )
 
     model_ref: str = Field(
@@ -33,6 +34,17 @@ class VersionSwitchResponse(BaseModel):
     status: str = Field(..., description="Resultado del cambio de versión; siempre `\"ok\"` si tuvo éxito.")
     previous_version: str = Field(..., description="Versión activa antes del switch.")
     current_version: str = Field(..., description="Versión activa después del switch.")
+
+
+class VersionRegisterResponse(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {"status": "ok", "mlflow_version": "2"}
+        }
+    )
+
+    status: str = Field(..., description="Siempre `\"ok\"` si el registro tuvo éxito.")
+    mlflow_version: str = Field(..., description="Número de versión asignado por MLflow Model Registry.")
 
 
 class VersionCurrentResponse(BaseModel):

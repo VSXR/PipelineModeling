@@ -1,4 +1,5 @@
 import httpx
+import pytest
 
 
 def test_version_current_returns_200(client: httpx.Client) -> None:
@@ -26,17 +27,43 @@ def test_version_current_consistent_with_health(client: httpx.Client) -> None:
 def test_version_switch_nonexistent_ref_returns_500(client: httpx.Client) -> None:
     r = client.post(
         "/version/switch",
-        json={"git_ref": "refs/tags/v999.999.999-does-not-exist"},
+        json={"model_ref": "v999.999.999-does-not-exist"},
         timeout=30.0,
     )
     assert r.status_code == 500
 
 
 def test_version_switch_empty_ref_returns_422(client: httpx.Client) -> None:
-    r = client.post("/version/switch", json={"git_ref": ""})
+    r = client.post("/version/switch", json={"model_ref": ""})
     assert r.status_code == 422
 
 
 def test_version_switch_missing_body_returns_422(client: httpx.Client) -> None:
     r = client.post("/version/switch", json={})
     assert r.status_code == 422
+
+
+def test_version_register_returns_mlflow_version(client: httpx.Client) -> None:
+    r = client.post("/version/register", timeout=30.0)
+    if r.status_code == 500:
+        pytest.skip("MLflow not available for registration — start stack first")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "ok"
+    assert body["mlflow_version"].isdigit(), (
+        f"mlflow_version must be a positive integer string, got {body['mlflow_version']!r}"
+    )
+    assert int(body["mlflow_version"]) >= 1
+
+
+def test_version_switch_registered_version_succeeds(client: httpx.Client) -> None:
+    reg = client.post("/version/register", timeout=30.0)
+    if reg.status_code == 500:
+        pytest.skip("MLflow not available for registration — start stack first")
+    version = reg.json()["mlflow_version"]
+
+    r = client.post("/version/switch", json={"model_ref": version}, timeout=30.0)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "ok"
+    assert body["current_version"] == version

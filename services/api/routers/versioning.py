@@ -4,11 +4,38 @@ from core.metrics import pipeline_metrics
 from core.model_manager import ModelManager
 from schemas.versioning import (
     VersionCurrentResponse,
+    VersionRegisterResponse,
     VersionSwitchRequest,
     VersionSwitchResponse,
 )
 
 router = APIRouter(prefix="/version", tags=["versioning"])
+
+
+@router.post("/register", response_model=VersionRegisterResponse, summary="Registrar modelo activo en MLflow")
+async def register_version() -> VersionRegisterResponse:
+    """
+    Registra el modelo actualmente en memoria en el MLflow Model Registry.
+
+    Carga el artefacto desde disco (`model.pkl`), abre un nuevo run en MLflow,
+    y registra el modelo como una nueva versión bajo el nombre configurado
+    en `MLFLOW_MODEL_NAME`.
+
+    Útil para promover un modelo entrenado incrementalmente a MLflow sin
+    reiniciar el servicio.
+
+    **Código de error:**
+    - `500` — modelo no persistido aún en disco o MLflow no disponible.
+    """
+    manager = ModelManager.get_instance()
+    try:
+        version = await manager.register_to_mlflow()
+        return VersionRegisterResponse(status="ok", mlflow_version=version)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Registration failed: {exc}",
+        ) from exc
 
 
 @router.get("/current", response_model=VersionCurrentResponse, summary="Versión activa del modelo")

@@ -1,137 +1,68 @@
-"""
-Bootstrap: entrena un SGDClassifier con el dataset Breast Cancer Wisconsin
-y registra el artefacto en MLflow Model Registry.
-
-Salidas locales (compatibilidad con la API en modo sin servidor MLflow):
-  model/weights/model.pkl
-  model/metrics.json
-  model/plots/confusion_matrix.csv
-
-MLflow (cuando MLFLOW_TRACKING_URI está configurado):
-  - Experimento: pipeline-breast-cancer
-  - Parámetros, métricas y artefactos registrados por run
-  - Modelo registrado como "pipeline-model" en el Model Registry
-"""
+from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 import joblib
-import mlflow  # type: ignore[import]
-import mlflow.sklearn  # type: ignore[import]
-import numpy as np
-from sklearn.datasets import load_breast_cancer
-from sklearn.linear_model import SGDClassifier
-from sklearn.metrics import (
-    accuracy_score,
-    confusion_matrix,
-    f1_score,
-    precision_score,
-    recall_score,
-)
-from sklearn.model_selection import train_test_split
 
-# ── Parámetros ────────────────────────────────────────────────────────────────
-DATASET      = "breast_cancer"
-N_FEATURES   = 30
-RANDOM_STATE = 42
+from trainer import ModelTrainer
+from promote import ModelPromoter
 
-# ── Rutas de salida ───────────────────────────────────────────────────────────
 BASE         = Path(__file__).parent
 WEIGHTS_PATH = BASE / "weights" / "model.pkl"
 METRICS_PATH = BASE / "metrics.json"
-PLOTS_DIR    = BASE / "plots"
-CM_PATH      = PLOTS_DIR / "confusion_matrix.csv"
 
-# Nombres de features exportados para consumo en otros módulos
-FEATURE_NAMES = [
-    "radius_mean",      "texture_mean",     "perimeter_mean",  "area_mean",
-    "smoothness_mean",  "compactness_mean",  "concavity_mean",  "concpts_mean",
-    "symmetry_mean",    "fracdim_mean",
-    "radius_se",        "texture_se",        "perimeter_se",    "area_se",
-    "smoothness_se",    "compactness_se",    "concavity_se",    "concpts_se",
-    "symmetry_se",      "fracdim_se",
-    "radius_worst",     "texture_worst",     "perimeter_worst", "area_worst",
-    "smoothness_worst", "compactness_worst", "concavity_worst", "concpts_worst",
-    "symmetry_worst",   "fracdim_worst",
-]
+THRESHOLDS: dict[str, float] = {
+    "accuracy": 0.85,
+    "f1":       0.82,
+    "roc_auc":  0.90,
+}
 
 
-def load_dataset():
-    data = load_breast_cancer()
-    return data.data, data.target
+def _git_commit() -> str:
+    return subprocess.check_output(["git", "rev-parse", "HEAD"]).decode().strip()
 
 
-def _compute_metrics(y_true, y_pred) -> dict:
-    return {
-        "accuracy":  round(float(accuracy_score(y_true, y_pred)),  5),
-        "f1":        round(float(f1_score(y_true, y_pred)),        5),
-        "precision": round(float(precision_score(y_true, y_pred)), 5),
-        "recall":    round(float(recall_score(y_true, y_pred)),    5),
-        "n_samples": int(len(y_true)),
-        "dataset":   DATASET,
-    }
-
-
-def _save_local_artifacts(model, metrics: dict, y_true, y_pred) -> None:
-    WEIGHTS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump(model, WEIGHTS_PATH)
-    METRICS_PATH.write_text(json.dumps(metrics, indent=2))
-
-    cm = confusion_matrix(y_true, y_pred)
-    CM_PATH.parent.mkdir(parents=True, exist_ok=True)
-    lines = ["actual,predicted,count"]
-    for i, row in enumerate(cm):
-        for j, val in enumerate(row):
-            lines.append(f"{i},{j},{val}")
-    CM_PATH.write_text("\n".join(lines))
-
-
-def train() -> None:
-    X, y = load_dataset()
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=RANDOM_STATE, stratify=y,
+def _git_ref() -> str:
+    return os.getenv(
+        "GITHUB_REF_NAME",
+        subprocess.check_output(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"]
+        ).decode().strip(),
     )
 
-    model = SGDClassifier(loss="log_loss", max_iter=1000, random_state=RANDOM_STATE)
-    model.fit(X_train, y_train)
-    y_pred  = model.predict(X_test)
-    metrics = _compute_metrics(y_test, y_pred)
 
-    _save_local_artifacts(model, metrics, y_test, y_pred)
+def _save_local_artifacts(metrics: dict[str, float], clf) -> None:
+    """Persist the raw SGDClassifier so the API local pickle remains partial_fit-compatible."""
+    WEIGHTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    joblib.dump(clf, WEIGHTS_PATH)
+    METRICS_PATH.write_text(json.dumps(metrics, indent=2))
 
-    # ── MLflow tracking + registry ────────────────────────────────────────────
-    tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5000")
-    model_name   = os.getenv("MLFLOW_MODEL_NAME",   "pipeline-model")
-    mlflow.set_tracking_uri(tracking_uri)
-    mlflow.set_experiment("pipeline-breast-cancer")
 
-    with mlflow.start_run():
-        mlflow.log_params({
-            "dataset":      DATASET,
-            "n_features":   N_FEATURES,
-            "random_state": RANDOM_STATE,
-            "model_class":  "SGDClassifier",
-            "loss":         "log_loss",
-        })
-        mlflow.log_metrics({k: v for k, v in metrics.items() if isinstance(v, float)})
-        mlflow.log_artifact(str(METRICS_PATH), artifact_path="reports")
-        mlflow.log_artifact(str(CM_PATH),      artifact_path="reports")
+def main() -> None:
+    tracking_uri = os.environ["MLFLOW_TRACKING_URI"]
+    model_name   = os.getenv("MLFLOW_MODEL_NAME", "pipeline-model")
+    experiment   = os.getenv("MLFLOW_EXPERIMENT", "pipeline-breast-cancer")
 
-        model_info = mlflow.sklearn.log_model(
-            sk_model=model,
-            artifact_path="model",
-            registered_model_name=model_name,
-            input_example=X_test[:1],
-        )
-        print(f"MLflow run  -> {mlflow.active_run().info.run_id}")
-        print(f"Model URI   -> {model_info.model_uri}")
+    trainer = ModelTrainer(tracking_uri, experiment, model_name)
+    result  = trainer.train(git_commit=_git_commit(), git_ref=_git_ref())
 
-    print(f"Dataset  -> {DATASET} ({len(X)} samples, {N_FEATURES} features)")
-    print(f"Model    -> {WEIGHTS_PATH}")
-    print(f"Metrics  -> accuracy={metrics['accuracy']}  f1={metrics['f1']}")
+    clf = trainer.fitted_pipeline.named_steps["clf"]
+    _save_local_artifacts(result.metrics, clf)
+
+    promo = ModelPromoter(tracking_uri, model_name, THRESHOLDS).promote(result.version)
+
+    print(f"version={result.version} run_id={result.run_id}")
+    print(f"promoted={promo.promoted} reason={promo.reason}")
+    for k, v in result.metrics.items():
+        print(f"metric.{k}={v:.4f}")
+
+    if not promo.promoted:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
-    train()
+    main()

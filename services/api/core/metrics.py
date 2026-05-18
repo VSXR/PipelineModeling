@@ -15,6 +15,21 @@ from opentelemetry import metrics
 from opentelemetry.metrics import Observation
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+from opentelemetry.sdk.metrics.view import ExplicitBucketHistogramAggregation, View
+
+_LATENCY_BOUNDARIES = [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]
+_LOAD_BOUNDARIES    = [0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0]
+
+_HISTOGRAM_VIEWS = [
+    View(
+        instrument_name="pipeline.inference.latency_seconds",
+        aggregation=ExplicitBucketHistogramAggregation(_LATENCY_BOUNDARIES),
+    ),
+    View(
+        instrument_name="pipeline.model.load_duration_seconds",
+        aggregation=ExplicitBucketHistogramAggregation(_LOAD_BOUNDARIES),
+    ),
+]
 
 
 def _build_provider() -> MeterProvider:
@@ -25,7 +40,7 @@ def _build_provider() -> MeterProvider:
     from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
     exporter = OTLPMetricExporter(endpoint=endpoint, insecure=True)
     reader = PeriodicExportingMetricReader(exporter, export_interval_millis=15_000)
-    return MeterProvider(metric_readers=[reader])
+    return MeterProvider(metric_readers=[reader], views=_HISTOGRAM_VIEWS)
 
 
 _provider = _build_provider()
@@ -54,13 +69,12 @@ _meter.create_observable_gauge(
 _meter.create_observable_gauge(
     "pipeline.data.drift_score",
     callbacks=[_obs_drift_scores],
-    unit="1",
     description="Normalised mean-shift drift score per feature",
 )
 
 # ── push instruments ──────────────────────────────────────────────────────────
 _inference_requests = _meter.create_counter(
-    "pipeline.inference.requests_total",
+    "pipeline.inference.requests",
     description="Cumulative inference requests by outcome",
 )
 _inference_latency = _meter.create_histogram(
@@ -69,15 +83,15 @@ _inference_latency = _meter.create_histogram(
     description="End-to-end inference latency (lock + predict + serialise)",
 )
 _training_requests = _meter.create_counter(
-    "pipeline.training.requests_total",
+    "pipeline.training.requests",
     description="Cumulative partial-fit requests by outcome",
 )
 _training_samples = _meter.create_counter(
-    "pipeline.training.samples_total",
+    "pipeline.training.samples",
     description="Cumulative samples consumed by partial_fit",
 )
 _version_switches = _meter.create_counter(
-    "pipeline.version.switches_total",
+    "pipeline.version.switches",
     description="Cumulative model version switches by outcome",
 )
 _model_load_duration = _meter.create_histogram(

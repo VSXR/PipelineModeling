@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor  # type: ignore[import]
 from pydantic import BaseModel, ConfigDict
 
@@ -103,20 +104,18 @@ app.include_router(debug.router)
     "/health",
     tags=["ops"],
     response_model=HealthResponse,
+    responses={503: {"model": HealthResponse}},
     summary="Estado del servicio",
 )
-async def health() -> HealthResponse:
-    """
-    Devuelve el estado operacional del servicio y del modelo activo.
-
-    - **status** — siempre `"ok"` si el servicio responde.
-    - **model_loaded** — `true` si hay un modelo cargado en memoria.
-    - **model_version** — timestamp o versión MLflow del modelo activo.
-    """
+async def health() -> JSONResponse:
     manager = ModelManager.get_instance()
-    return HealthResponse(
-        status="ok",
-        model_loaded=manager.is_loaded,
-        model_version=manager.version,
+    loaded = manager.is_loaded
+    return JSONResponse(
+        content=HealthResponse(
+            status="ok" if loaded else "unavailable",
+            model_loaded=loaded,
+            model_version=manager.version,
+        ).model_dump(),
+        status_code=200 if loaded else 503,
     )
 

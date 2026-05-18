@@ -1,0 +1,22 @@
+{
+  "ref": "refs/heads/master",
+  "before": "0000000000000000000000000000000000000000",
+  "after": "1111111111111111111111111111111111111111",
+  "commits": [
+    {
+      "id": "1111111111111111111111111111111111111111",
+      "message": "chore: trigger CT locally via act",
+      "added": [],
+      "modified": ["model/train.py"],
+      "removed": []
+    }
+  ],
+  "repository": {
+    "full_name": "VSXR/PipelineModeling",
+    "name": "PipelineModeling",
+    "default_branch": "master"
+  },
+  "pusher": {
+    "name": "VSXR"
+  }
+}

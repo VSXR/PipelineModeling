@@ -1,4 +1,4 @@
-# ── Python ────────────────────────────────────────────────────────────────────
+# Python
 __pycache__/
 *.py[cod]
 *.pyo
@@ -9,17 +9,17 @@ __pycache__/
 dist/
 build/
 
-# ── Entorno virtual ───────────────────────────────────────────────────────────
+# Entorno virtual
 .venv/
 venv/
 env/
 
-# ── Variables de entorno ──────────────────────────────────────────────────────
+# Variables de entorno
 .env
 .env.local
 .env.*.local
 
-# ── Testing y cobertura ───────────────────────────────────────────────────────
+# Testing y cobertura
 .pytest_cache/
 .coverage
 .coverage.*
@@ -27,16 +27,16 @@ htmlcov/
 coverage.xml
 *.prof
 
-# ── Type checkers y linters ───────────────────────────────────────────────────
+# Type checkers y linters
 .mypy_cache/
 .ruff_cache/
 .pyright/
 
-# ── Jupyter ───────────────────────────────────────────────────────────────────
+# Jupyter
 .ipynb_checkpoints/
 *.ipynb
 
-# ── IDEs ──────────────────────────────────────────────────────────────────────
+# IDEs
 .vscode/
 .idea/
 *.swp
@@ -44,7 +44,7 @@ coverage.xml
 *.sublime-project
 *.sublime-workspace
 
-# ── OS ────────────────────────────────────────────────────────────────────────
+# OS
 .DS_Store
 .DS_Store?
 ._*
@@ -52,17 +52,30 @@ Thumbs.db
 ehthumbs.db
 Desktop.ini
 
-# ── Logs ──────────────────────────────────────────────────────────────────────
+# Logs
 *.log
 logs/
 
-# ── MLflow — runs y artefactos locales ───────────────────────────────────────
+# MLflow — runs y artefactos locales
 mlruns/
 mlartifacts/
 
-# ── Modelo — gestionado por MLflow, no por Git ────────────────────────────────
+# Modelo — gestionado por MLflow, no por Git
 model/weights/
 !model/weights/.gitkeep
 
-# ── Estado en tiempo de ejecución ────────────────────────────────────────────
+# Estado en tiempo de ejecución
 .pids.json
+
+# SQLite locales (MLflow fuera de Docker)
+*.db
+*.sqlite
+
+# Reportes CI de pytest
+junit*.xml
+test-results/
+
+# act — secretos locales (NUNCA versionar)
+.secrets
+.secrets.*
+!.secrets.template

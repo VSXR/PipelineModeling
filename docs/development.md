@@ -14,7 +14,7 @@ flowchart LR
 ```
 
 ```powershell
-.\pipeline.ps1 start    # arranca todo (API + Frontend + Seeder + MinIO + Prometheus + Grafana)
+.\pipeline.ps1 start    # arranca API + Frontend + Seeder en local, más MLflow + OTel Collector + Prometheus + Grafana en Docker
 # ... edita código en services/api/ — uvicorn recarga automáticamente
 .\pipeline.ps1 test     # verifica que nada se rompió
 .\pipeline.ps1 stop     # para todo al terminar
@@ -28,7 +28,7 @@ flowchart LR
 .\pipeline.ps1 <comando> [opciones]
 
   setup    Primera configuración (venv, deps, .env, modelo inicial)
-  start    Arranca API + Frontend + Seeder + MinIO + Prometheus + Grafana
+  start    Arranca API + Frontend + Seeder en local + MLflow/OTel/Prometheus/Grafana en Docker
   stop     Para todos los servicios
   status   Estado de servicios y versión activa del modelo
   test     Ejecuta la suite de integración (requiere API activa)
@@ -51,7 +51,7 @@ Ver [versioning.md](versioning.md) para el flujo completo.
 | Aspecto | `pipeline.ps1 start` | `docker compose up` |
 |---|---|---|
 | API / Frontend / Seeder | `.venv` con `--reload` | Contenedores (requiere `--build` si cambia código) |
-| MinIO / Prometheus / Grafana | Docker | Docker |
+| MLflow / OTel Collector / Prometheus / Grafana | Docker | Docker |
 | Recarga automática | Sí (uvicorn `--reload`) | No |
 | Ideal para | Desarrollo iterativo | Demo, integración, entrega |
 
@@ -64,7 +64,7 @@ docker compose down          # parar (preserva volúmenes)
 docker compose down -v       # parar y borrar volúmenes (reset completo)
 ```
 
-El stack completo incluye: MinIO + minio-init + API + Seeder + Frontend + Prometheus + Grafana.
+El stack completo incluye: MLflow + OTel Collector + Prometheus + Grafana + API + Seeder + Frontend.
 
 ---
 

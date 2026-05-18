@@ -1,17 +1,15 @@
-name: Build & Deploy
+name: CD — Build and Publish
 
 on:
-  push:
-    tags:
-      - "v*"          # triggered by retrain.yml tags on main
-  workflow_dispatch:  # manual trigger for hotfixes
+  release:
+    types: [published]
 
 env:
   REGISTRY:   ghcr.io
   IMAGE_NAME: ${{ github.repository }}/api
+  PYTHON_VERSION: "3.11"
 
 jobs:
-  # ── 1. Build & push container image ─────────────────────────────────────────
   build-push:
     name: Build · Push to GHCR
     runs-on: ubuntu-latest
@@ -24,8 +22,7 @@ jobs:
       image_tag:    ${{ steps.meta.outputs.version }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -52,26 +49,24 @@ jobs:
         id: build
         uses: docker/build-push-action@v5
         with:
-          context:    .
-          file:       services/api/Dockerfile
-          target:     runtime
-          push:       true
-          tags:       ${{ steps.meta.outputs.tags }}
-          labels:     ${{ steps.meta.outputs.labels }}
+          context: .
+          file:    services/api/Dockerfile
+          target:  runtime
+          push:    true
+          tags:    ${{ steps.meta.outputs.tags }}
+          labels:  ${{ steps.meta.outputs.labels }}
+          build-args: |
+            MLFLOW_MODEL_NAME=pipeline-model
           cache-from: type=gha
           cache-to:   type=gha,mode=max
-          build-args: |
-            IMAGE_TAG=${{ steps.meta.outputs.version }}
 
-  # ── 2. Smoke-test the published image ────────────────────────────────────────
   smoke-test:
     name: Smoke Test
     needs: build-push
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -80,11 +75,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Start stack
+      - name: Start ephemeral stack
         env:
           API_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.build-push.outputs.image_tag }}
         run: |
-          # Override the api build with the published image
           cat > docker-compose.ci.yml <<EOF
           services:
             api:
@@ -105,10 +99,8 @@ jobs:
 
       - name: Run smoke tests
         run: |
-          # Health check
           curl -sf http://localhost:8000/health | python -m json.tool
 
-          # Inference with a known malignant sample (label 0)
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
             http://localhost:8000/infer/ \
             -H "Content-Type: application/json" \
@@ -122,18 +114,3 @@ jobs:
       - name: Tear down
         if: always()
         run: docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v
-
-  # ── 3. Optional: deploy to target environment ─────────────────────────────────
-  # Uncomment and adapt for your deployment target (k8s rollout, ECS, Cloud Run…)
-  #
-  # deploy-production:
-  #   name: Deploy to Production
-  #   needs: [build-push, smoke-test]
-  #   runs-on: ubuntu-latest
-  #   environment: production
-  #   steps:
-  #     - name: Rollout
-  #       run: |
-  #         # Example: kubectl set image deployment/pipeline-api \
-  #         #   api=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-push.outputs.image_digest }}
-  #         echo "Deploy image digest: ${{ needs.build-push.outputs.image_digest }}"

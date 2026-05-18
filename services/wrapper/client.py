@@ -34,7 +34,7 @@ class PipelineClient:
     Designed to be used as an async context manager.
 
     Usage:
-        async with PipelineClient("http://localhost:8000") as client:
+        async with PipelineClient("http://api:8000") as client:
             result = await client.infer([0.1] * 10)
     """
 
@@ -84,17 +84,40 @@ class PipelineClient:
         response.raise_for_status()
         return TrainingResult(**response.json())
 
-    async def switch_version(self, git_ref: str) -> VersionSwitchResult:
+    async def switch_version(self, model_ref: str) -> VersionSwitchResult:
         response = await self._client.post(
             "/version/switch",
-            json={"git_ref": git_ref},
+            json={"model_ref": model_ref},
             timeout=300.0,
         )
         response.raise_for_status()
         return VersionSwitchResult(**response.json())
 
+    async def chaos_state(self) -> dict:
+        response = await self._client.get("/debug/chaos")
+        response.raise_for_status()
+        return response.json()
+
+    async def set_chaos(self, inference_error_rate: float) -> dict:
+        response = await self._client.post(
+            "/debug/chaos",
+            json={"inference_error_rate": inference_error_rate},
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def reset_chaos(self) -> dict:
+        response = await self._client.post("/debug/chaos/reset")
+        response.raise_for_status()
+        return response.json()
+
     async def current_version(self) -> dict:
         response = await self._client.get("/version/current")
+        response.raise_for_status()
+        return response.json()
+
+    async def register_version(self) -> dict:
+        response = await self._client.post("/version/register", timeout=120.0)
         response.raise_for_status()
         return response.json()
 

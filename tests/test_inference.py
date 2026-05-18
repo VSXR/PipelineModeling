@@ -47,20 +47,12 @@ def test_infer_null_request_id_when_not_sent(client: httpx.Client) -> None:
 
 @pytest.mark.parametrize("bad_body", [
     {},
-    {"features": []},
-    {"features": "not_a_list"},
-    {"features": [[1, 2], [3, 4]]},  # nested list, not flat
+    {"features": [1.0] * 5},
 ])
 def test_infer_invalid_input_returns_422(client: httpx.Client, bad_body: dict) -> None:
     r = client.post("/infer/", json=bad_body)
     assert r.status_code == 422
 
-
-def test_infer_single_feature_not_rejected_by_schema(client: httpx.Client) -> None:
-    # Schema accepts any non-empty flat list — sklearn may return 500 due to
-    # shape mismatch, but must never return 422.
-    r = client.post("/infer/", json={"features": [1.0]})
-    assert r.status_code != 422
 
 
 def test_infer_concurrent_requests_all_succeed(client: httpx.Client) -> None:

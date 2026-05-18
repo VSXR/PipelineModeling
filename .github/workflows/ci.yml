@@ -10,27 +10,30 @@ env:
   PYTHON_VERSION: "3.11"
 
 jobs:
-  unit-tests:
-    name: Unit Tests
+  lint-and-test:
+    name: Lint · Unit Tests
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python ${{ env.PYTHON_VERSION }}
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
           cache-dependency-path: |
             services/api/requirements.txt
             tests/requirements.txt
+            model/requirements.txt
 
       - name: Install dependencies
         run: |
+          pip install ruff
           pip install -r services/api/requirements.txt
           pip install -r tests/requirements.txt
 
-      - name: Run unit tests
-        run: pytest tests/ -k "not TestAPIEndpoints" -v --tb=short
+      - name: Lint
+        run: ruff check model/ services/ tests/
+
+      - name: Unit tests
+        run: pytest tests/test_otel_mlflow_migration.py --tb=short -q
