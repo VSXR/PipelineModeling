@@ -16,10 +16,14 @@ env:
   MLFLOW_EXPERIMENT: pipeline-breast-cancer
   ENVIRONMENT: ci
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   train:
     name: Train · Validate · Promote · Release
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
 
     env:
       MLFLOW_TRACKING_URI:      ${{ secrets.MLFLOW_TRACKING_URI }}
