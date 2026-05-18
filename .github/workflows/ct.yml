@@ -30,13 +30,19 @@ jobs:
     uses: ./.github/workflows/ci.yml
 
   train:
-    name: Train · Validate · Promote · Release
+    name: Train · Validate · Promote
     needs: ci
     runs-on: self-hosted
     timeout-minutes: 30
     outputs:
-      promoted: ${{ steps.train.outputs.promoted }}
-      tag:      ${{ steps.semver.outputs.tag }}
+      promoted:  ${{ steps.train.outputs.promoted }}
+      tag:       ${{ steps.semver.outputs.tag }}
+      version:   ${{ steps.train.outputs.version }}
+      accuracy:  ${{ steps.train.outputs.accuracy }}
+      f1:        ${{ steps.train.outputs.f1 }}
+      precision: ${{ steps.train.outputs.precision }}
+      recall:    ${{ steps.train.outputs.recall }}
+      roc_auc:   ${{ steps.train.outputs.roc_auc }}
 
     env:
       MLFLOW_TRACKING_URI:      ${{ secrets.MLFLOW_TRACKING_URI }}
@@ -78,40 +84,6 @@ jobs:
           $major = $parts[0]; $minor = $parts[1]; $patch = [int]$parts[2]
           "tag=v${major}.${minor}.$($patch + 1)" >> $env:GITHUB_OUTPUT
 
-      - name: Configure git identity
-        if: steps.train.outputs.promoted == 'true'
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Create semantic tag
-        if: steps.train.outputs.promoted == 'true'
-        run: |
-          git tag "${{ steps.semver.outputs.tag }}"
-          git push origin "${{ steps.semver.outputs.tag }}"
-
-      - name: Create GitHub Release
-        if: steps.train.outputs.promoted == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $notesFile = "$env:RUNNER_TEMP\release-notes.md"
-          @(
-            "## Metrics",
-            "",
-            "| Metric    | Value |",
-            "|-----------|-------|",
-            "| Accuracy  | ${{ steps.train.outputs.accuracy }} |",
-            "| F1        | ${{ steps.train.outputs.f1 }} |",
-            "| Precision | ${{ steps.train.outputs.precision }} |",
-            "| Recall    | ${{ steps.train.outputs.recall }} |",
-            "| ROC-AUC   | ${{ steps.train.outputs.roc_auc }} |",
-            "",
-            "MLflow version: ${{ steps.train.outputs.version }}",
-            "Commit: ${{ github.sha }}"
-          ) | Set-Content $notesFile -Encoding UTF8
-          gh release create "${{ steps.semver.outputs.tag }}" --title "Model ${{ steps.semver.outputs.tag }}" --notes-file $notesFile
-
       - name: Upload model artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -129,3 +101,47 @@ jobs:
     with:
       tag: ${{ needs.train.outputs.tag }}
     secrets: inherit
+
+  release:
+    name: Tag · Release
+    needs: [train, deploy]
+    if: always() && needs.train.outputs.promoted == 'true' && needs.deploy.result == 'success'
+    runs-on: self-hosted
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Create semantic tag
+        run: |
+          git tag "${{ needs.train.outputs.tag }}"
+          git push origin "${{ needs.train.outputs.tag }}"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $notesFile = "$env:RUNNER_TEMP\release-notes.md"
+          @(
+            "## Metrics",
+            "",
+            "| Metric    | Value |",
+            "|-----------|-------|",
+            "| Accuracy  | ${{ needs.train.outputs.accuracy }} |",
+            "| F1        | ${{ needs.train.outputs.f1 }} |",
+            "| Precision | ${{ needs.train.outputs.precision }} |",
+            "| Recall    | ${{ needs.train.outputs.recall }} |",
+            "| ROC-AUC   | ${{ needs.train.outputs.roc_auc }} |",
+            "",
+            "MLflow version: ${{ needs.train.outputs.version }}",
+            "Commit: ${{ github.sha }}"
+          ) | Set-Content $notesFile -Encoding UTF8
+          gh release create "${{ needs.train.outputs.tag }}" --title "Model ${{ needs.train.outputs.tag }}" --notes-file $notesFile
