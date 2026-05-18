@@ -18,7 +18,7 @@ env:
 
 defaults:
   run:
-    shell: bash
+    shell: pwsh
 
 jobs:
   train:
@@ -48,23 +48,24 @@ jobs:
         id: train
         working-directory: model
         run: |
-          output=$(python train.py)
-          echo "$output"
-          version=$(echo "$output" | grep '^version=' | awk -F'[= ]' '{print $2}')
-          promoted=$(echo "$output" | grep '^promoted=' | awk -F= '{print $2}' | awk '{print $1}')
-          echo "version=$version"   >> "$GITHUB_OUTPUT"
-          echo "promoted=$promoted" >> "$GITHUB_OUTPUT"
-          for metric in accuracy f1 precision recall roc_auc; do
-            val=$(echo "$output" | grep "^metric\.$metric=" | awk -F= '{print $2}')
-            echo "$metric=$val" >> "$GITHUB_OUTPUT"
-          done
+          python train.py | Tee-Object -Variable output
+          $version  = ($output | Where-Object { $_ -match '^version='  } | Select-Object -First 1) -replace '^version=(\S+).*',  '$1'
+          $promoted = ($output | Where-Object { $_ -match '^promoted=' } | Select-Object -First 1) -replace '^promoted=(\S+).*', '$1'
+          "version=$version"   >> $env:GITHUB_OUTPUT
+          "promoted=$promoted" >> $env:GITHUB_OUTPUT
+          foreach ($metric in @('accuracy','f1','precision','recall','roc_auc')) {
+            $val = ($output | Where-Object { $_ -match "^metric\.$metric=" } | Select-Object -First 1) -replace "^metric\.$metric=(.*)", '$1'
+            "$metric=$val" >> $env:GITHUB_OUTPUT
+          }
 
       - name: Compute next semantic tag
         id: semver
         run: |
-          latest=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-          IFS='.' read -r major minor patch <<< "${latest#v}"
-          echo "tag=v${major}.${minor}.$((patch + 1))" >> "$GITHUB_OUTPUT"
+          $latest = git describe --tags --abbrev=0 2>$null
+          if (-not $latest) { $latest = "v0.0.0" }
+          $parts = $latest.TrimStart('v').Split('.')
+          $major = $parts[0]; $minor = $parts[1]; $patch = [int]$parts[2]
+          "tag=v${major}.${minor}.$($patch + 1)" >> $env:GITHUB_OUTPUT
 
       - name: Configure git identity
         if: steps.train.outputs.promoted == 'true'
@@ -83,20 +84,22 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ steps.semver.outputs.tag }}" \
-            --title "Model ${{ steps.semver.outputs.tag }}" \
-            --notes "## Metrics
-
-          | Metric    | Value |
-          |-----------|-------|
-          | Accuracy  | ${{ steps.train.outputs.accuracy }}  |
-          | F1        | ${{ steps.train.outputs.f1 }}        |
-          | Precision | ${{ steps.train.outputs.precision }} |
-          | Recall    | ${{ steps.train.outputs.recall }}    |
-          | ROC-AUC   | ${{ steps.train.outputs.roc_auc }}   |
-
-          MLflow version: \`${{ steps.train.outputs.version }}\`
-          Commit: \`${{ github.sha }}\`"
+          $notesFile = "$env:RUNNER_TEMP\release-notes.md"
+          @(
+            "## Metrics",
+            "",
+            "| Metric    | Value |",
+            "|-----------|-------|",
+            "| Accuracy  | ${{ steps.train.outputs.accuracy }} |",
+            "| F1        | ${{ steps.train.outputs.f1 }} |",
+            "| Precision | ${{ steps.train.outputs.precision }} |",
+            "| Recall    | ${{ steps.train.outputs.recall }} |",
+            "| ROC-AUC   | ${{ steps.train.outputs.roc_auc }} |",
+            "",
+            "MLflow version: ${{ steps.train.outputs.version }}",
+            "Commit: ${{ github.sha }}"
+          ) | Set-Content $notesFile -Encoding UTF8
+          gh release create "${{ steps.semver.outputs.tag }}" --title "Model ${{ steps.semver.outputs.tag }}" --notes-file $notesFile
 
       - name: Upload model artifacts
         uses: actions/upload-artifact@v4
