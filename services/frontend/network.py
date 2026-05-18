@@ -61,6 +61,11 @@ async def _register_version(api_url: str) -> dict:
         return await client.register_version()
 
 
+async def _list_versions(api_url: str) -> dict:
+    async with PipelineClient(api_url) as client:
+        return await client.list_versions()
+
+
 def fetch_health(api_url: str) -> dict:
     return _run(_health(api_url))
 
@@ -95,3 +100,7 @@ def fetch_set_chaos(api_url: str, rate: float) -> dict:
 
 def fetch_reset_chaos(api_url: str) -> dict:
     return _run(_reset_chaos(api_url))
+
+
+def fetch_version_list(api_url: str) -> dict:
+    return _run(_list_versions(api_url))

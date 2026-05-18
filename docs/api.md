@@ -11,23 +11,23 @@ graph LR
         T["/train/"]
         VC["/version/current"]
         VS["/version/switch"]
-        M["/metrics"]
+        VL["/version/list"]
+        VR["/version/register"]
     end
 
     MM["ModelManager\nsingleton"]
     DT["DriftTracker\nsingleton"]
-    PROM["Prometheus\nmétricas"]
+    MLF["MLflow\nModel Registry"]
 
     I -->|predict| MM
     I -->|update_single| DT
     T -->|partial_fit| MM
     T -->|update_batch| DT
-    VS -->|DVC pull + reload| MM
-    MM --> PROM
-    DT --> PROM
+    VS -->|MLflow pull + reload| MM
+    VR -->|register_to_mlflow| MLF
+    VL -->|search_model_versions| MLF
     H --> MM
     VC --> MM
-    M --> PROM
 ```
 
 > El dataset utilizado es **Breast Cancer Wisconsin** (30 features). Todos los ejemplos usan vectores reales de este dataset. Ver [dataset.md](dataset.md).
@@ -170,46 +170,94 @@ Invoke-RestMethod http://localhost:8000/version/current
 
 ## POST /version/switch
 
-Hot-swap del modelo a un git ref via DVC. No requiere reiniciar la API. Registra la duración del pull en `pipeline_model_load_duration_seconds`.
+Hot-swap del modelo activo vía MLflow Model Registry. No requiere reiniciar la API. Registra la duración de carga en `pipeline.model.load_duration_seconds`.
 
 **Request**
 ```json
-{ "git_ref": "v2.0.0" }
+{ "model_ref": "Production" }
 ```
 
 | Campo | Tipo | Requerido | Descripción |
 |---|---|---|---|
-| `git_ref` | `string` | Sí | Tag semántico, rama o SHA de Git |
+| `model_ref` | `string` | Sí | Número de versión MLflow (`1`, `2`) o alias (`Production`, `Staging`) |
 
 **Respuesta 200**
 ```json
 {
   "status": "ok",
-  "previous_version": "2026-05-07T09:57:46.806313+00:00",
-  "current_version": "2026-05-05T08:00:00.000000+00:00"
+  "previous_version": "2",
+  "current_version": "3"
 }
 ```
 
 **Errores**
 | Código | Causa |
 |---|---|
-| 422 | `git_ref` vacío o falta el body |
-| 500 | Ref no existe, fallo de `git checkout`, fallo de `dvc pull` |
+| 422 | `model_ref` vacío o falta el body |
+| 500 | Versión o alias no encontrado en MLflow Model Registry |
 
 ```powershell
+# Por alias
 Invoke-RestMethod -Method Post http://localhost:8000/version/switch `
     -ContentType "application/json" `
-    -Body '{"git_ref": "v2.0.0"}'
+    -Body '{"model_ref": "Production"}'
+
+# Por número de versión
+Invoke-RestMethod -Method Post http://localhost:8000/version/switch `
+    -ContentType "application/json" `
+    -Body '{"model_ref": "2"}'
 ```
 
 ---
 
-## GET /metrics
+## GET /version/list
 
-Métricas en formato Prometheus text. Ver [monitoring.md](monitoring.md) para la referencia completa.
+Lista todas las versiones registradas en MLflow Model Registry para el modelo configurado.
+
+**Respuesta 200**
+```json
+{
+  "model_name": "pipeline-model",
+  "versions": [
+    {
+      "version": "2",
+      "aliases": ["Production"],
+      "status": "None",
+      "created_at": "2026-05-18T10:00:00",
+      "run_id": "ef58985930e6...",
+      "description": "SGDClassifier · StandardScaler pipeline trained on Breast Cancer Wisconsin..."
+    }
+  ]
+}
+```
 
 ```powershell
-Invoke-WebRequest http://localhost:8000/metrics | Select-Object -ExpandProperty Content
+Invoke-RestMethod http://localhost:8000/version/list
+```
+
+Retorna lista vacía si MLflow no está disponible o el modelo no tiene versiones registradas.
+
+---
+
+## POST /version/register
+
+Registra el modelo actualmente en memoria (el `.pkl` local) como una nueva versión en MLflow Model Registry.
+
+**Respuesta 200**
+```json
+{
+  "status": "ok",
+  "mlflow_version": "1"
+}
+```
+
+**Errores**
+| Código | Causa |
+|---|---|
+| 500 | Modelo no persistido en disco todavía o MLflow no disponible |
+
+```powershell
+Invoke-RestMethod -Method Post http://localhost:8000/version/register
 ```
 
 ---
@@ -239,7 +287,7 @@ async def main():
             labels=[0, 1]
         )
 
-        await c.switch_version("v2.0.0")
+        await c.switch_version("Production")
 
 asyncio.run(main())
 ```

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from mlflow.tracking import MlflowClient
 
@@ -35,6 +36,10 @@ class ModelPromoter:
                 promoted=False, version=version, reason="; ".join(failed)
             )
         self._client.set_registered_model_alias(self._model_name, "Production", version)
+        self._client.set_model_version_tag(
+            self._model_name, version,
+            "promoted_at", datetime.now(timezone.utc).isoformat()
+        )
         return PromoteResult(promoted=True, version=version, reason="all thresholds met")
 
     def _get_run_metrics(self, version: str) -> dict[str, float]:

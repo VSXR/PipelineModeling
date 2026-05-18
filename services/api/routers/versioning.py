@@ -4,12 +4,56 @@ from core.metrics import pipeline_metrics
 from core.model_manager import ModelManager
 from schemas.versioning import (
     VersionCurrentResponse,
+    VersionEntry,
+    VersionListResponse,
     VersionRegisterResponse,
     VersionSwitchRequest,
     VersionSwitchResponse,
 )
 
 router = APIRouter(prefix="/version", tags=["versioning"])
+
+
+@router.get("/list", response_model=VersionListResponse, summary="Listar versiones registradas en MLflow")
+async def list_versions() -> VersionListResponse:
+    """
+    Devuelve todas las versiones registradas en el MLflow Model Registry para el modelo configurado,
+    ordenadas de mayor a menor número de versión.
+
+    Responde con lista vacía si MLflow no está disponible o el modelo no tiene versiones registradas.
+    """
+    from datetime import datetime
+
+    import mlflow
+    from mlflow import MlflowClient
+
+    from core.config import settings
+
+    client = MlflowClient(tracking_uri=settings.mlflow_tracking_uri)
+    model_name = settings.mlflow_model_name
+    try:
+        mvs = client.search_model_versions(f"name='{model_name}'")
+    except Exception:
+        return VersionListResponse(versions=[], model_name=model_name)
+
+    def _sort_key(mv):
+        try:
+            return int(mv.version)
+        except (ValueError, TypeError):
+            return 0
+
+    entries = [
+        VersionEntry(
+            version=str(mv.version),
+            aliases=list(getattr(mv, "aliases", [])),
+            status=str(mv.current_stage),
+            created_at=datetime.fromtimestamp(mv.creation_timestamp / 1000).isoformat(),
+            run_id=mv.run_id or None,
+            description=mv.description or "",
+        )
+        for mv in sorted(mvs, key=_sort_key, reverse=True)
+    ]
+    return VersionListResponse(versions=entries, model_name=model_name)
 
 
 @router.post("/register", response_model=VersionRegisterResponse, summary="Registrar modelo activo en MLflow")

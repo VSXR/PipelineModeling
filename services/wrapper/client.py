@@ -121,6 +121,11 @@ class PipelineClient:
         response.raise_for_status()
         return response.json()
 
+    async def list_versions(self) -> dict:
+        response = await self._client.get("/version/list")
+        response.raise_for_status()
+        return response.json()
+
     async def health(self) -> dict:
         response = await self._client.get("/health")
         response.raise_for_status()

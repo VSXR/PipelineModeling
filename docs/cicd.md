@@ -118,6 +118,44 @@ gh api /user/packages/container/PipelineModeling%2Fapi/versions \
 
 ---
 
+## Runner Local Automatizado
+
+`manage.py start` y `manage.py stop` gestionan el ciclo de vida del runner de forma automática.
+
+### Arranque automatico
+
+`python manage.py start` ejecuta `_start_actions_runner()` tras levantar Docker Compose. La función:
+
+1. Verifica que `C:\actions-runner\run.cmd` existe (no hace nada en hosts no Windows o sin runner instalado).
+2. Comprueba si `Runner.Listener.exe` ya está en ejecución — si es así, lo omite sin abrir una segunda instancia.
+3. Lanza `Start-Process pwsh -Verb RunAs` con una ventana PowerShell elevada nueva que ejecuta `.\run.cmd; pause`.
+4. El usuario acepta el prompt UAC una sola vez por sesión de Windows.
+
+El `pause` al final mantiene la ventana abierta tras la parada del runner, permitiendo leer el motivo del cierre.
+
+### Parada automatica
+
+`python manage.py stop` ejecuta `_stop_actions_runner()` antes de bajar Docker Compose. Usa `taskkill /F /IM Runner.Listener.exe` y `taskkill /F /IM Runner.Worker.exe`. Si `taskkill` falla por permisos (proceso elevado), emite una advertencia sin bloquear la bajada del stack.
+
+### Comandos manuales (fallback)
+
+Si la automatización falla o el runner ya estaba encendido manualmente:
+
+```powershell
+# Abrir PowerShell como Administrador
+Set-Location C:\actions-runner
+.\run.cmd
+```
+
+### Disparar entrenamiento continuo
+
+```bash
+gh workflow run ct.yml --repo VSXR/PipelineModeling --ref master
+gh run watch --repo VSXR/PipelineModeling
+```
+
+---
+
 ## Self-hosted runner (requerido por ct.yml)
 
 `ct.yml` ejecuta en el runner local (`runs-on: self-hosted`) porque MLflow está en `localhost:5000`. `ci.yml` y `cd.yml` usan runners GitHub-hosted (`ubuntu-latest`) y no requieren runner local.
@@ -170,12 +208,10 @@ Pulsar `Ctrl+C` en la ventana donde corre `.\run.cmd`. El runner pasa a estado `
 ### Secuencia de uso habitual
 
 ```
-1. Encender el stack Docker:    python manage.py start
-2. Encender el runner:          (Admin PS) Set-Location C:\actions-runner; .\run.cmd
-3. Disparar CT:                 gh workflow run ct.yml --repo VSXR/PipelineModeling --ref master
-4. Monitorizar:                 gh run watch --repo VSXR/PipelineModeling
-5. Apagar el runner:            Ctrl+C en la ventana del runner
-6. Apagar el stack:             python manage.py stop
+1. Encender el stack + runner:  python manage.py start   (runner se lanza automáticamente con UAC)
+2. Disparar CT:                 gh workflow run ct.yml --repo VSXR/PipelineModeling --ref master
+3. Monitorizar:                 gh run watch --repo VSXR/PipelineModeling
+4. Apagar el stack + runner:    python manage.py stop    (runner se termina antes de bajar Docker)
 ```
 
 El runner debe estar activo durante toda la ejecucion de `ct.yml`. `cd.yml` corre en runners GitHub-hosted y no necesita que el runner local este activo.

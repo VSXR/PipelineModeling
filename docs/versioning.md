@@ -32,6 +32,26 @@ result = trainer.train(git_commit="04429b4", git_ref="develop")
 
 El modelo queda registrado con alias `Staging` inmediatamente tras el entrenamiento.
 
+#### Enriquecimiento de metadatos en el Model Registry
+
+Tras asignar el alias `Staging`, `_register()` escribe una descripción profesional y cuatro tags a nivel de versión:
+
+| Metadato | Método MLflow | Contenido |
+|---|---|---|
+| Descripción | `update_model_version(description=...)` | Dataset, run ID, timestamp de registro y resumen de métricas |
+| `run_id` | `set_model_version_tag` | UUID del run de MLflow asociado |
+| `registered_at` | `set_model_version_tag` | Timestamp ISO UTC del registro |
+| `model_name` | `set_model_version_tag` | Nombre del modelo en el registry |
+| `alias` | `set_model_version_tag` | Siempre `Staging` en el registro inicial |
+
+Ejemplo de descripción generada:
+```
+SGDClassifier · StandardScaler pipeline trained on Breast Cancer Wisconsin (569 samples, 30 features).
+Run ID: ef58985930e6...
+Registered: 2026-05-18T10:00:00.000000+00:00
+Metrics: accuracy=0.9737 | f1=0.9790 | precision=0.9859 | recall=0.9722 | roc_auc=0.9947
+```
+
 ### `ModelPromoter` (`model/promote.py`)
 
 Promueve `Staging` → `Production` si todas las métricas superan los umbrales:
@@ -46,7 +66,7 @@ promo = ModelPromoter(
 # promo.reason   → "all thresholds met"
 ```
 
-La operación es idempotente: `set_registered_model_alias` sobrescribe el alias `Production` sin duplicar versiones.
+La operación es idempotente: `set_registered_model_alias` sobrescribe el alias `Production` sin duplicar versiones. Tras asignar el alias, escribe el tag `promoted_at` con el timestamp ISO UTC de la promoción.
 
 ---
 
@@ -198,5 +218,5 @@ git ls-remote --tags origin
 
 # GitHub Releases (incluyen tabla de métricas)
 gh release list
-gh release view v1.0.4
+gh release view v0.0.1
 ```

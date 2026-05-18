@@ -35,6 +35,7 @@ Los tests se **auto-omiten** (`pytest.skip`) si la API no está disponible, por 
 | [test_flow.py](../tests/test_flow.py) | 3 | Golden path (health→infer→train→version), `request_id` propagation, múltiples rondas de entrenamiento |
 | [test_observability.py](../tests/test_observability.py) | 16 | Infraestructura (HA-07..HA-12), métricas Prometheus de referencia (PA-01..PA-05), métricas operativas (PA-06..PA-10) |
 | [test_otel_mlflow_migration.py](../tests/test_otel_mlflow_migration.py) | 19 | `PipelineMetrics` no-op, `ModelManager` startup, `VersionSwitch`, `DriftTracker` OTel, configuración limpia |
+| [test_frontend.py](../tests/test_frontend.py) | 7 | E2E Playwright: FE-01 título, FE-02 conteo de tabs, FE-03 estado API en header, FE-04 inputs de inferencia, FE-05 controles de versioning, FE-06 ausencia de tracebacks, FE-07 submit de inferencia |
 
 ---
 
@@ -73,6 +74,14 @@ FEATURES_30 = [
 [pytest]
 testpaths = tests
 addopts   = -v --tb=short
+markers =
+    fragile: tests that depend on Streamlit internal DOM structure
+```
+
+El marker `fragile` se usa en `test_frontend.py` para los tests que inspeccionan elementos de DOM que pueden cambiar con versiones del framework. Ejecutar solo los tests estables:
+
+```powershell
+pytest tests/test_frontend.py -v -m "not fragile"
 ```
 
 ---

@@ -48,6 +48,21 @@ class VersionRecord:
 
 
 @dataclass(frozen=True)
+class VersionInfo:
+    version:    str
+    aliases:    tuple[str, ...]
+    status:     str
+    created_at: str
+    run_id:      Optional[str] = None
+    description: str = ""
+    model_name:  str = ""
+
+    def label(self) -> str:
+        alias_part = f" [{', '.join(self.aliases)}]" if self.aliases else ""
+        return f"v{self.version}{alias_part} — {self.status}"
+
+
+@dataclass(frozen=True)
 class ChaosRecord:
     inference_error_rate: float
     checked_at: datetime
@@ -71,6 +86,7 @@ class AppState:
     version_history: tuple[VersionRecord, ...] = field(default_factory=tuple)
     chaos_history: tuple[ChaosRecord, ...] = field(default_factory=tuple)
     timeline: tuple[TimelineSample, ...] = field(default_factory=tuple)
+    version_list: tuple[VersionInfo, ...] = field(default_factory=tuple)
     last_error: str = ""
     selected_tab: str = "Inference"
     inference_mode: str = "Form"
@@ -162,6 +178,10 @@ def append_chaos(state: AppState, record: ChaosRecord) -> AppState:
         chaos_history=trim_history(state.chaos_history + (record,), MAX_HISTORY),
         last_error="",
     )
+
+
+def with_version_list(state: AppState, versions: tuple["VersionInfo", ...]) -> AppState:
+    return replace(state, version_list=versions, last_error="")
 
 
 def update_health_snapshot(state: AppState, *, model_loaded: bool, model_version: str, reachable: bool = True) -> AppState:

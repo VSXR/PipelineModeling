@@ -1,6 +1,26 @@
 from __future__ import annotations
 
+from typing import Optional
+
 from pydantic import BaseModel, ConfigDict, Field
+
+
+class VersionEntry(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    version:    str
+    aliases:    list[str]
+    status:     str
+    created_at: str
+    run_id:     Optional[str] = None
+    description: str = ""
+
+
+class VersionListResponse(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    versions:   list[VersionEntry]
+    model_name: str
 
 
 class VersionSwitchRequest(BaseModel):

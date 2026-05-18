@@ -9,6 +9,7 @@ from .domain import (
     InferenceRecord,
     ServiceHealth,
     TrainingRecord,
+    VersionInfo,
     VersionRecord,
     append_chaos,
     append_inference,
@@ -17,6 +18,7 @@ from .domain import (
     now_utc,
     update_health_snapshot,
     with_error,
+    with_version_list,
 )
 from .network import (
     fetch_chaos_state,
@@ -27,6 +29,7 @@ from .network import (
     fetch_set_chaos,
     fetch_switch,
     fetch_training,
+    fetch_version_list,
 )
 
 
@@ -138,6 +141,27 @@ def apply_chaos(state: AppState, api_url: str, rate: float) -> AppState:
         return append_chaos(state, record)
     except Exception as exc:
         return with_error(state, f"Chaos set failed: {exc}")
+
+
+def list_versions(state: AppState, api_url: str) -> AppState:
+    try:
+        data = fetch_version_list(api_url)
+        model_name = str(data.get("model_name", ""))
+        entries = tuple(
+            VersionInfo(
+                version=str(v["version"]),
+                aliases=tuple(v.get("aliases") or []),
+                status=str(v.get("status", "")),
+                created_at=str(v.get("created_at", "")),
+                run_id=v.get("run_id"),
+                description=str(v.get("description", "")),
+                model_name=model_name,
+            )
+            for v in data.get("versions", [])
+        )
+        return with_version_list(state, entries)
+    except Exception:
+        return with_version_list(state, ())
 
 
 def clear_chaos(state: AppState, api_url: str) -> AppState:

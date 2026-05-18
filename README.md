@@ -82,17 +82,40 @@ ModelPromoter.promote() →  valida accuracy ≥ 0.85 · f1 ≥ 0.82 · roc_auc 
 
 ```
 python manage.py setup                                     Primera configuración
-python manage.py start                                     Arrancar todo el workspace
-python manage.py stop                                      Parar todos los servicios
+python manage.py start                                     Arrancar stack + runner GH Actions (Windows)
+python manage.py stop                                      Parar servicios + terminar runner
 python manage.py status                                    Estado de los servicios
 python manage.py test                                      Suite completa de pytest
 python manage.py test --unit                               Solo tests unitarios (sin API)
 python manage.py test --integration                        Solo tests de integración
+python manage.py test --frontend                           Tests E2E Playwright (requiere stack activo)
 python manage.py simulate --scenario drift                 Simular deriva de datos
 python manage.py simulate --scenario version-fail          Simular fallo de cambio de versión
 python manage.py simulate --scenario training-errors       Simular errores de entrenamiento
 python manage.py simulate --scenario chaos                 Inyectar errores en inferencias
 python manage.py simulate --scenario all                   Todos los escenarios
+```
+
+### Runner de GitHub Actions (Windows)
+
+`manage.py start` lanza automáticamente el runner local en una ventana PowerShell elevada. El prompt UAC aparece una sola vez por sesión. Si el runner ya está en ejecución, la llamada es silenciosa.
+
+`manage.py stop` termina `Runner.Listener.exe` y `Runner.Worker.exe` antes de bajar Docker Compose.
+
+El runner necesita estar activo para que el workflow `ct.yml` pueda alcanzar MLflow en `localhost:5000`. Para disparar el pipeline de entrenamiento manualmente:
+
+```bash
+gh workflow run ct.yml --repo VSXR/PipelineModeling --ref master
+gh run watch --repo VSXR/PipelineModeling
+```
+
+### Tests E2E del frontend
+
+Requiere Playwright instalado (solo la primera vez después de `setup`):
+
+```bash
+playwright install chromium
+python manage.py test --frontend
 ```
 
 ---

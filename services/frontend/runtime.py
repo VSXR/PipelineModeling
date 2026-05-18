@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from .controller import (
     apply_chaos,
     clear_chaos,
+    list_versions,
     refresh_chaos,
     refresh_health,
     run_inference,
@@ -71,33 +72,9 @@ def _inject_styles() -> None:
           font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, system-ui, sans-serif !important;
         }
 
-        /* ── Sidebar ── */
-        [data-testid="stSidebar"] h1 {
-          font-size: 1.2rem !important;
-          font-weight: 800 !important;
-          letter-spacing: -0.02em !important;
-          color: #f1f5f9 !important;
-          margin-bottom: 0.1rem !important;
-        }
-        [data-testid="stSidebar"] h3 {
-          font-size: 0.65rem !important;
-          font-weight: 700 !important;
-          text-transform: uppercase !important;
-          letter-spacing: 0.12em !important;
-          color: #475569 !important;
-          margin-top: 0.25rem !important;
-          margin-bottom: 0.3rem !important;
-        }
-        [data-testid="stSidebar"] [data-testid="stMetricValue"] {
-          font-size: 1.15rem !important;
-          font-weight: 700 !important;
-        }
-        [data-testid="stSidebar"] [data-testid="stMetricLabel"] p {
-          font-size: 0.68rem !important;
-          text-transform: uppercase !important;
-          letter-spacing: 0.08em !important;
-          color: #475569 !important;
-        }
+        /* ── Hide sidebar and its toggle ── */
+        section[data-testid="stSidebar"] { display: none !important; }
+        [data-testid="collapsedControl"]  { display: none !important; }
 
         /* ── Tabs ── */
         [data-baseweb="tab-list"] {
@@ -246,40 +223,54 @@ def _parse_train_json(f) -> tuple[list[list[float]], list[int]]:
     raise ValueError('JSON must be {"features":[[...]],"labels":[...]} or [{...,"label":0},...]')
 
 
-# ── sidebar ───────────────────────────────────────────────────────────────────
+# ── top header bar ────────────────────────────────────────────────────────────
 
-def _sidebar(state: AppState) -> None:
-    with st.sidebar:
-        st.title("PipelineModeling")
-        st.caption("Breast Cancer Wisconsin · SGDClassifier · MLflow")
-        st.divider()
+def _header(state: AppState) -> None:
+    col_title, col_status, col_btn = st.columns([7, 1, 1])
 
-        st.subheader("API")
+    with col_title:
+        st.markdown(
+            """
+            <div style="padding:0.6rem 0 0.4rem">
+              <h1 style="font-size:1.6rem;font-weight:800;letter-spacing:-0.04em;
+                         color:#f1f5f9;margin:0 0 0.15rem;line-height:1.1">
+                PipelineModeling
+              </h1>
+              <p style="font-size:0.78rem;color:#475569;font-weight:500;margin:0;letter-spacing:0.01em">
+                Breast Cancer Wisconsin &nbsp;&middot;&nbsp; SGDClassifier
+                &nbsp;&middot;&nbsp; MLflow &nbsp;&middot;&nbsp; OpenTelemetry
+              </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with col_status:
+        st.markdown("<div style='padding-top:1rem'>", unsafe_allow_html=True)
         if state.api.reachable:
             st.success("Online")
         else:
             st.error("Offline")
-        st.metric("Version", state.api.model_version or "—")
-        st.metric("Model loaded", "Yes" if state.api.model_loaded else "No")
+        st.markdown("</div>", unsafe_allow_html=True)
 
-        if st.button("Refresh status", use_container_width=True):
+    with col_btn:
+        st.markdown("<div style='padding-top:1.1rem'>", unsafe_allow_html=True)
+        if st.button("Refresh", use_container_width=True, key="hdr_refresh"):
             _save(refresh_health(state, API_URL))
             st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
 
-        if state.last_error:
-            st.error(state.last_error)
+    st.caption(
+        "[📚 Swagger](http://localhost:8000/docs) &nbsp;·&nbsp; "
+        "[❤️ Health](http://localhost:8000/health) &nbsp;·&nbsp; "
+        "[🧪 MLflow](http://localhost:5000) &nbsp;·&nbsp; "
+        "[📊 Grafana](http://localhost:3000) &nbsp;·&nbsp; "
+        "[📈 Prometheus](http://localhost:9090) &nbsp;·&nbsp; "
+        "[🔭 OTel](http://localhost:55679/debug/tracez)"
+    )
 
-        st.divider()
-
-        st.subheader("Links")
-        st.markdown(
-            "[📚 API Swagger](http://localhost:8000/docs)  \n"
-            "[❤️ API Health](http://localhost:8000/health)  \n"
-            "[🧪 MLflow UI](http://localhost:5000)  \n"
-            "[📊 Grafana](http://localhost:3000)  \n"
-            "[📈 Prometheus](http://localhost:9090)  \n"
-            "[🔭 OTel zPages](http://localhost:55679/debug/tracez)"
-        )
+    if state.last_error:
+        st.error(state.last_error)
 
 
 # ── inference tab ─────────────────────────────────────────────────────────────
@@ -470,33 +461,127 @@ def _tab_training(state: AppState) -> None:
 # ── versioning tab ────────────────────────────────────────────────────────────
 
 def _tab_versioning(state: AppState) -> None:
-    c1, c2 = st.columns([1, 2])
+    if not st.session_state.get("ver_list_loaded") and state.api.reachable:
+        st.session_state["ver_list_loaded"] = True
+        _save(list_versions(state, API_URL))
+        state = _load()
 
-    with c1:
-        st.metric("Active version", state.api.model_version or "—")
-        st.metric("Model loaded", "Yes" if state.api.model_loaded else "No")
+    # ── status header ──────────────────────────────────────────────────────────
+    c1, c2, c3 = st.columns([1, 1, 1])
+    c1.metric("Active version", state.api.model_version or "—")
+    c2.metric("Model loaded", "Yes" if state.api.model_loaded else "No")
+    c3.metric("Available versions", len(state.version_list) if state.version_list else "—")
 
-    with c2:
-        ref = st.text_input(
+    st.divider()
+
+    # ── dynamic version picker ─────────────────────────────────────────────────
+    st.caption("**Switch active model version**")
+
+    col_list, col_refresh = st.columns([5, 1])
+    with col_refresh:
+        if st.button("Refresh list", use_container_width=True, key="ver_refresh"):
+            _save(list_versions(_load(), API_URL))
+            st.rerun()
+
+    state = _load()
+
+    if state.version_list:
+        labels = [v.label() for v in state.version_list]
+        versions_by_label = {v.label(): v for v in state.version_list}
+
+        with col_list:
+            selected_label = st.selectbox(
+                "Select version",
+                options=labels,
+                key="ver_select",
+                label_visibility="collapsed",
+            )
+
+        selected = versions_by_label.get(selected_label)
+        selected_ref = selected.version if selected else ""
+
+        c_btn, c_manual = st.columns([2, 3])
+        with c_btn:
+            if st.button(
+                f"Switch to v{selected_ref}",
+                type="primary",
+                disabled=not selected_ref,
+                use_container_width=True,
+                key="ver_switch_select",
+            ):
+                _save(switch_version(_load(), API_URL, selected_ref))
+                _save(sync_current_version(_load(), API_URL))
+                st.rerun()
+
+        with c_manual:
+            manual_ref = st.text_input(
+                "Or enter version/alias manually",
+                placeholder="1 · 2 · Production · Staging",
+                key="ver_ref_manual",
+                label_visibility="collapsed",
+            )
+            if manual_ref and st.button(
+                "Switch (manual)",
+                disabled=not bool(manual_ref),
+                use_container_width=True,
+                key="ver_switch_manual",
+            ):
+                _save(switch_version(_load(), API_URL, manual_ref))
+                _save(sync_current_version(_load(), API_URL))
+                st.rerun()
+
+        # registered versions table
+        st.divider()
+        st.caption("**Registered versions in MLflow**")
+        st.dataframe(
+            pd.DataFrame([
+                {
+                    "ID":                v.version,
+                    "Nombre":            v.model_name or "—",
+                    "Alias":             ", ".join(v.aliases) if v.aliases else "—",
+                    "Fecha de Registro": v.created_at[:19].replace("T", " ") if v.created_at else "—",
+                    "Documentación":     v.description or "—",
+                }
+                for v in state.version_list
+            ]),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    else:
+        with col_list:
+            if not state.version_list and state.api.reachable:
+                st.info("No registered versions found. Click Refresh list or register the current model below.")
+            elif not state.api.reachable:
+                st.warning("API not reachable — cannot load version list.")
+
+        manual_ref = st.text_input(
             "Switch to version or alias",
             placeholder="1 · 2 · Production · Staging",
             key="ver_ref",
         )
-        if st.button("Switch version", type="primary", disabled=not bool(ref), use_container_width=True):
-            _save(switch_version(_load(), API_URL, ref))
+        if st.button("Switch version", type="primary", disabled=not bool(manual_ref), use_container_width=True):
+            _save(switch_version(_load(), API_URL, manual_ref))
             _save(sync_current_version(_load(), API_URL))
             st.rerun()
 
+    # ── register ───────────────────────────────────────────────────────────────
     st.divider()
     st.caption("**Register current model to MLflow**")
     st.caption("Promotes the model in memory (after training) to the MLflow Model Registry as a new version.")
     if st.button("Register to MLflow", use_container_width=True):
         try:
             result = fetch_register_version(API_URL)
-            st.success(f"Registered as MLflow version {result.get('mlflow_version', '?')} — use that number in Switch version above.")
+            st.success(
+                f"Registered as MLflow version {result.get('mlflow_version', '?')}."
+                " Click Refresh list to see it in the selector."
+            )
+            _save(list_versions(_load(), API_URL))
+            st.rerun()
         except Exception as exc:
             st.error(str(exc))
 
+    # ── switch history ─────────────────────────────────────────────────────────
     if state.version_history:
         st.divider()
         st.caption("Switch history (last 32)")
@@ -565,7 +650,7 @@ def run() -> None:
         page_title="PipelineModeling",
         page_icon="⚡",
         layout="wide",
-        initial_sidebar_state="expanded",
+        initial_sidebar_state="collapsed",
     )
     _inject_styles()
 
@@ -577,26 +662,15 @@ def run() -> None:
         state = sync_current_version(state, API_URL)
         _save(state)
 
-    _sidebar(state)
+    _header(state)
+    st.divider()
 
-    st.markdown(
-        """
-        <div style="margin:0 0 1.75rem; padding-bottom:1.5rem; border-bottom:1px solid rgba(255,255,255,0.07)">
-          <h1 style="font-size:2.3rem;font-weight:800;letter-spacing:-0.05em;color:#f1f5f9;margin:0 0 0.3rem;line-height:1.1">
-            PipelineModeling
-          </h1>
-          <p style="font-size:0.875rem;color:#64748b;font-weight:500;margin:0;letter-spacing:0.01em">
-            Breast Cancer Wisconsin &nbsp;·&nbsp; SGDClassifier &nbsp;·&nbsp; MLflow &nbsp;·&nbsp; OpenTelemetry
-          </p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("API", "Online" if state.api.reachable else "Offline")
     c2.metric("Active version", state.api.model_version or "—")
-    c3.metric("Inferences", len(state.inference_history))
-    c4.metric("Training rounds", len(state.training_history))
+    c3.metric("Model loaded", "Yes" if state.api.model_loaded else "No")
+    c4.metric("Inferences", len(state.inference_history))
+    c5.metric("Training rounds", len(state.training_history))
     st.divider()
 
     tab_infer, tab_train, tab_ver, tab_debug = st.tabs(

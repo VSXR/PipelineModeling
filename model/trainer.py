@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 import mlflow
 import mlflow.sklearn
@@ -60,7 +61,7 @@ class ModelTrainer:
 
         with mlflow.start_run() as run:
             self._log_run(run, pipeline, metrics, git_commit, git_ref)
-            version = self._register(run.info.run_id)
+            version = self._register(run.info.run_id, metrics)
 
         return TrainResult(
             version=version,
@@ -130,11 +131,28 @@ class ModelTrainer:
             input_example=np.zeros((1, 30)),
         )
 
-    def _register(self, run_id: str) -> str:
+    def _register(self, run_id: str, metrics: dict[str, float]) -> str:
         client = MlflowClient(self._tracking_uri)
         versions = client.search_model_versions(f"run_id='{run_id}'")
         if not versions:
             raise RuntimeError(f"No model version found for run_id={run_id}")
         version = versions[0].version
         client.set_registered_model_alias(self._model_name, "Staging", version)
+        now = datetime.now(timezone.utc).isoformat()
+        metrics_summary = " | ".join(f"{k}={v:.4f}" for k, v in sorted(metrics.items()))
+        client.update_model_version(
+            name=self._model_name,
+            version=version,
+            description=(
+                f"SGDClassifier · StandardScaler pipeline trained on Breast Cancer Wisconsin "
+                f"(569 samples, 30 features).\n"
+                f"Run ID: {run_id}\n"
+                f"Registered: {now}\n"
+                f"Metrics: {metrics_summary}"
+            ),
+        )
+        client.set_model_version_tag(self._model_name, version, "run_id", run_id)
+        client.set_model_version_tag(self._model_name, version, "registered_at", now)
+        client.set_model_version_tag(self._model_name, version, "model_name", self._model_name)
+        client.set_model_version_tag(self._model_name, version, "alias", "Staging")
         return version

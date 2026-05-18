@@ -25,11 +25,13 @@ from pathlib import Path
 from typing import Callable, NoReturn
 
 # Constants
-ROOT   = Path(__file__).parent.resolve()
-VENV   = ROOT / ".venv"
-IS_WIN = platform.system() == "Windows"
-_BIN   = VENV / ("Scripts" if IS_WIN else "bin")
-_EXE = ".exe" if IS_WIN else ""
+ROOT        = Path(__file__).parent.resolve()
+VENV        = ROOT / ".venv"
+IS_WIN      = platform.system() == "Windows"
+_BIN        = VENV / ("Scripts" if IS_WIN else "bin")
+_EXE        = ".exe" if IS_WIN else ""
+RUNNER_DIR  = Path(r"C:\actions-runner")
+RUNNER_CMD  = RUNNER_DIR / "run.cmd"
 
 PYTHON = _BIN / f"python{_EXE}"
 PIP = _BIN / f"pip{_EXE}"
@@ -89,6 +91,155 @@ def _load_dotenv() -> dict[str, str]:
             k, _, v = line.partition("=")
             result[k.strip()] = v.strip()
     return result
+
+
+def _frontend_healthy(timeout: float = 3.0) -> bool:
+    try:
+        with urllib.request.urlopen(
+            "http://127.0.0.1:8501/_stcore/health", timeout=timeout
+        ) as r:
+            return r.status == 200
+    except Exception:
+        return False
+
+
+def _runner_running() -> bool:
+    result = subprocess.run(
+        ["tasklist", "/FI", "IMAGENAME eq Runner.Listener.exe"],
+        capture_output=True,
+        text=True,
+    )
+    return "Runner.Listener.exe" in result.stdout
+
+
+def _ensure_runner_clean() -> None:
+    runner_cfg = RUNNER_DIR / ".runner"
+    if not runner_cfg.exists():
+        return
+    try:
+        cfg = json.loads(runner_cfg.read_text(encoding="utf-8"))
+        agent_name = cfg.get("agentName") or cfg.get("AgentName", "")
+    except Exception:
+        return
+
+    r = subprocess.run(
+        ["gh", "repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"],
+        capture_output=True, text=True, cwd=ROOT,
+    )
+    if r.returncode != 0 or not r.stdout.strip():
+        return
+    repo_name = r.stdout.strip()
+
+    r2 = subprocess.run(
+        ["gh", "repo", "view", "--json", "url", "--jq", ".url"],
+        capture_output=True, text=True, cwd=ROOT,
+    )
+    if r2.returncode != 0 or not r2.stdout.strip():
+        return
+    repo_url = r2.stdout.strip()
+
+    runners_r = subprocess.run(
+        ["gh", "api", f"repos/{repo_name}/actions/runners",
+         "--jq", f'.runners[] | select(.name == "{agent_name}") | {{id: .id, status: .status}}'],
+        capture_output=True, text=True,
+    )
+    if not runners_r.stdout.strip():
+        return
+
+    try:
+        info = json.loads(runners_r.stdout.strip())
+    except Exception:
+        return
+
+    if info.get("status") == "online":
+        return
+
+    runner_id = info.get("id")
+    if not runner_id:
+        return
+
+    del_r = subprocess.run(
+        ["gh", "api", "-X", "DELETE", f"repos/{repo_name}/actions/runners/{runner_id}"],
+        capture_output=True, text=True,
+    )
+    if del_r.returncode != 0:
+        return
+
+    tok_r = subprocess.run(
+        ["gh", "api", "-X", "POST",
+         f"repos/{repo_name}/actions/runners/registration-token",
+         "--jq", ".token"],
+        capture_output=True, text=True,
+    )
+    if tok_r.returncode != 0 or not tok_r.stdout.strip():
+        return
+    token = tok_r.stdout.strip()
+
+    _step("Sesion huerfana detectada — reconfigurando runner...")
+    subprocess.run(
+        [
+            "powershell", "-NoProfile", "-Command",
+            "Start-Process pwsh -Verb RunAs -Wait -WindowStyle Hidden "
+            f"-ArgumentList '-NoProfile','-NonInteractive','-Command',"
+            f"'Set-Location C:\\\\actions-runner; "
+            f".\\\\config.cmd --url {repo_url} --token {token} "
+            f"--unattended --replace --name {agent_name}'",
+        ],
+        capture_output=True,
+    )
+    _ok("Runner reconfigurado — sesion limpia.")
+
+
+def _start_actions_runner() -> None:
+    if not IS_WIN:
+        return
+    if not RUNNER_CMD.exists():
+        _warn("Runner de GitHub Actions no encontrado en C:\\actions-runner — omitido.")
+        return
+    if _runner_running():
+        _ok("Runner de GitHub Actions ya esta en ejecucion.")
+        return
+    _ensure_runner_clean()
+    _step("Lanzando runner de GitHub Actions (requiere UAC)...")
+    subprocess.Popen([
+        "powershell", "-NoProfile", "-Command",
+        r"Start-Process pwsh -Verb RunAs -WindowStyle Normal "
+        r"-ArgumentList '-NoProfile','-NonInteractive','-Command',"
+        r"'Set-Location C:\actions-runner; .\run.cmd; pause'",
+    ])
+    _ok("Runner lanzado en ventana elevada. Acepta el prompt UAC si aparece.")
+
+
+def _stop_actions_runner() -> None:
+    if not IS_WIN:
+        return
+    needs_elevation = False
+    for proc in ("Runner.Listener.exe", "Runner.Worker.exe"):
+        result = subprocess.run(["taskkill", "/F", "/IM", proc], capture_output=True, text=True)
+        if result.returncode == 0:
+            _ok(f"{proc} terminado.")
+        elif result.returncode == 128:
+            pass  # proceso no estaba corriendo
+        else:
+            needs_elevation = True
+
+    if needs_elevation:
+        _step("Runner elevado detectado — solicitando UAC para terminarlo...")
+        r = subprocess.run(
+            [
+                "powershell", "-NoProfile", "-Command",
+                "Start-Process pwsh -Verb RunAs -Wait -WindowStyle Hidden "
+                "-ArgumentList '-NoProfile','-NonInteractive','-Command',"
+                "'Stop-Process -Name Runner.Listener,Runner.Worker -Force "
+                "-ErrorAction SilentlyContinue'",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if r.returncode == 0:
+            _ok("Runner de GitHub Actions terminado.")
+        else:
+            _warn("No se pudo terminar el runner automaticamente. Cierra la ventana del runner manualmente.")
 
 
 def _docker_compose(*args: str) -> int:
@@ -184,6 +335,8 @@ def cmd_start(_: argparse.Namespace) -> None:
         _fail("docker compose up --build -d fallo.")
     _ok("Stack Docker levantado")
 
+    _start_actions_runner()
+
     print()
     print("  ============================================")
     print("   PipelineModeling stack activo en Docker")
@@ -195,6 +348,7 @@ def cmd_start(_: argparse.Namespace) -> None:
     print("   Grafana        http://localhost:3000")
     print("   Prometheus     http://localhost:9090")
     print("   OTel zPages    http://localhost:55679")
+    print("   Runner GH      ventana PowerShell elevada (Windows)")
     print("  ============================================")
     print("   Parar: python manage.py stop")
     print("  ============================================\n")
@@ -202,6 +356,7 @@ def cmd_start(_: argparse.Namespace) -> None:
 
 def cmd_stop(_: argparse.Namespace) -> None:
     _header("PipelineModeling — stop")
+    _stop_actions_runner()
     result = subprocess.run(["docker", "compose", "down"], cwd=ROOT)
     if result.returncode != 0:
         _fail("docker compose down fallo.")
@@ -262,6 +417,15 @@ def cmd_test(args: argparse.Namespace) -> None:
         if not _api_healthy():
             _fail("La API no esta disponible. Ejecuta: python manage.py start")
         env.setdefault("API_URL", "http://localhost:8000")
+    elif getattr(args, "frontend", False):
+        if not _frontend_healthy():
+            _fail(
+                "El frontend no esta disponible en http://localhost:8501. "
+                "Ejecuta: python manage.py start"
+            )
+        env.setdefault("FRONTEND_URL", "http://localhost:8501")
+        env.setdefault("API_URL", "http://localhost:8000")
+        cmd = [str(PYTEST), str(ROOT / "tests" / "test_frontend.py"), "-v"]
 
     print()
     result = subprocess.run(cmd, cwd=ROOT, env=env)
@@ -465,6 +629,8 @@ def _build_parser() -> argparse.ArgumentParser:
                     help="Solo tests unitarios (sin API)")
     tg.add_argument("--integration", action="store_true",
                     help="Solo tests de integracion (requiere API)")
+    tg.add_argument("--frontend",    action="store_true",
+                    help="Tests E2E del frontend con Playwright (requiere stack completo)")
 
     sim = sub.add_parser("simulate", help="Simular escenarios de carga y alertas")
     sim.add_argument(

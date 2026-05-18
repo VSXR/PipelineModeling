@@ -4,20 +4,19 @@
 
 ```mermaid
 flowchart LR
-    S["pipeline.ps1 start"] --> E["Editar código\nservices/api/"]
-    E --> R["uvicorn --reload\nauto-recarga"]
-    R --> T["pipeline.ps1 test\n52 tests de integración"]
+    S["manage.py start"] --> E["Editar código\nservices/api/ o services/frontend/"]
+    E --> T["manage.py test --integration\ntests de API"]
     T --> OK{¿Tests\npasan?}
-    OK -->|sí| C["git commit + push"]
+    OK -->|sí| C["git commit + push → ci.yml"]
     OK -->|no| E
-    C --> ST["pipeline.ps1 stop"]
+    C --> ST["manage.py stop"]
 ```
 
-```powershell
-.\pipeline.ps1 start    # arranca API + Frontend + Seeder en local, más MLflow + OTel Collector + Prometheus + Grafana en Docker
-# ... edita código en services/api/ — uvicorn recarga automáticamente
-.\pipeline.ps1 test     # verifica que nada se rompió
-.\pipeline.ps1 stop     # para todo al terminar
+```bash
+python manage.py start      # levanta stack Docker + runner GH Actions (Windows)
+# ... edita código en services/api/ o services/frontend/
+python manage.py test --integration   # verifica que nada se rompió
+python manage.py stop       # para todo al terminar
 ```
 
 ---
@@ -25,24 +24,20 @@ flowchart LR
 ## CLI de gestión
 
 ```
-.\pipeline.ps1 <comando> [opciones]
+python manage.py <comando> [opciones]
 
-  setup    Primera configuración (venv, deps, .env, modelo inicial)
-  start    Arranca API + Frontend + Seeder en local + MLflow/OTel/Prometheus/Grafana en Docker
-  stop     Para todos los servicios
-  status   Estado de servicios y versión activa del modelo
-  test     Ejecuta la suite de integración (requiere API activa)
-  train    Entrena y versiona un nuevo modelo con DVC + Git
+  setup            Primera configuración (venv, deps, .env, modelo inicial)
+  start            Arranca stack Docker + runner GH Actions en Windows
+  stop             Para todos los servicios + termina el runner
+  status           Estado de contenedores Docker
+  test             Suite completa de pytest
+  test --unit      Solo tests sin API (linting y unitarios)
+  test --integration  Integración (requiere stack activo)
+  test --frontend  E2E Playwright (requiere stack activo y playwright install chromium)
+  simulate         Escenarios de carga y alertas
 ```
 
-Opciones de `train`:
-```
-  -Version <vX.Y.Z>          Tag semántico (obligatorio)
-  -RandomState <int>          Nuevo valor de RANDOM_STATE en train.py
-  -Remote <local|minio>       Remote DVC destino (default: local)
-```
-
-Ver [versioning.md](versioning.md) para el flujo completo.
+Ver [cicd.md](cicd.md) para el ciclo CI/CT/CD.
 
 ---
 
@@ -152,23 +147,91 @@ docker compose logs -f --tail=100 api  # últimas 100 líneas de la API
 ## Limpiar el entorno
 
 ```powershell
-.\pipeline.ps1 stop
-docker compose down -v          # elimina volúmenes (Prometheus, Grafana, MinIO)
+python manage.py stop
+docker compose down -v          # elimina volúmenes (MLflow, Prometheus, Grafana)
 Remove-Item -Recurse .venv      # borrar entorno virtual
-Remove-Item dvc-remote -Recurse -ErrorAction SilentlyContinue  # borrar artefactos DVC locales
+```
+
+---
+
+## Desarrollo del frontend
+
+El frontend vive en `services/frontend/` con cuatro módulos:
+
+| Módulo | Responsabilidad |
+|--------|----------------|
+| `domain.py` | Dataclasses inmutables (`AppState`, `VersionInfo`, `InferenceRecord`, …) y funciones puras de transformación |
+| `network.py` | Wrappers sincrónicos que ejecutan `asyncio.run` en thread pool sobre los métodos del `PipelineClient` |
+| `controller.py` | Orquesta llamadas de red y actualiza el `AppState` — sin Streamlit |
+| `runtime.py` | Renderizado Streamlit (`_tab_inference`, `_tab_training`, `_tab_versioning`, `_tab_debug`, sidebar) |
+
+Para añadir un endpoint nuevo al frontend:
+
+1. Agregar el método async en `services/wrapper/client.py`.
+2. Agregar el coroutine `_xxx` y el wrapper `fetch_xxx` en `network.py`.
+3. Agregar el controlador en `controller.py` que actualiza `AppState`.
+4. Añadir el campo necesario en `domain.py` si el estado nuevo persiste entre renders.
+5. Llamar el controlador desde el tab correspondiente en `runtime.py`.
+
+Para modificar el diseño visual, editar únicamente `_inject_styles()` en `runtime.py` y los bloques `st.*` dentro de cada función `_tab_*`.
+
+---
+
+## Tests E2E del frontend con Playwright
+
+### Prerequisitos
+
+```bash
+# Una vez, después de manage.py setup
+playwright install chromium
+```
+
+### Ejecución
+
+```bash
+# Con stack activo
+python manage.py test --frontend
+
+# Directamente con pytest
+pytest tests/test_frontend.py -v
+
+# Solo tests estables (excluye fragile)
+pytest tests/test_frontend.py -v -m "not fragile"
+```
+
+### Marcador `fragile`
+
+Los tests FE-04 y FE-07 están marcados con `@pytest.mark.fragile` porque dependen de la estructura interna del DOM de Streamlit (selectores `input[type="number"]`, botones por texto literal). Pueden romper tras actualizar `streamlit` en `services/frontend/requirements.txt`. Al actualizarlo, ejecutar `pytest tests/test_frontend.py -m fragile` y ajustar los selectores si fallan.
+
+### Variable de entorno
+
+`FRONTEND_URL` controla la URL base (default `http://localhost:8501`). Útil en CI si el frontend corre en otro puerto:
+
+```bash
+FRONTEND_URL=http://localhost:8502 pytest tests/test_frontend.py -v
 ```
 
 ---
 
 ## Problemas frecuentes
 
-**`.\pipeline.ps1` bloqueado por PowerShell**
-```powershell
-Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+**API no disponible al ejecutar tests:**
+```bash
+python manage.py start   # asegura que el stack está activo
+python manage.py test --integration
 ```
 
-**`pipeline.ps1 start` falla: "API did not become healthy within 60s"**  
-Abre la ventana "PipelineModeling - API" para ver el error. Causas frecuentes: puerto 8000 ya ocupado por otra instancia, import error en el código, o modelo corrupto.
+**Playwright no encuentra el navegador:**
+```bash
+playwright install chromium
+```
+
+**Runner UAC rechazado o no arranca:**
+Ejecutar manualmente como Administrador:
+```powershell
+Set-Location C:\actions-runner
+.\run.cmd
+```
 
 **Verificar si el puerto 8000 está ocupado:**
 ```powershell
