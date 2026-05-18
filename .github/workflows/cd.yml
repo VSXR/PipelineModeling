@@ -112,7 +112,7 @@ jobs:
               build: !reset null
           EOF
           docker compose -f docker-compose.yml -f docker-compose.ci.yml \
-            up --wait --wait-timeout 180 mlflow otel-collector api
+            up --wait --wait-timeout 180 mlflow api
 
       - name: Run smoke tests
         run: |
