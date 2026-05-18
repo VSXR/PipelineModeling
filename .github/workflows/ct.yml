@@ -3,8 +3,6 @@ name: CT — Continuous Training
 on:
   push:
     branches: [master]
-    paths:
-      - "model/**"
   workflow_dispatch:
 
 permissions:
