@@ -9,6 +9,10 @@ permissions:
   contents: write
   packages: write
 
+concurrency:
+  group: ct-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   PYTHON_VERSION: "3.11"
   MLFLOW_MODEL_NAME: pipeline-model
@@ -21,9 +25,15 @@ defaults:
     shell: pwsh -NoProfile -NonInteractive {0}
 
 jobs:
+  ci:
+    name: CI Gate
+    uses: ./.github/workflows/ci.yml
+
   train:
     name: Train · Validate · Promote · Release
+    needs: ci
     runs-on: self-hosted
+    timeout-minutes: 30
     outputs:
       promoted: ${{ steps.train.outputs.promoted }}
       tag:      ${{ steps.semver.outputs.tag }}

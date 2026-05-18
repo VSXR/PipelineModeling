@@ -5,6 +5,7 @@ on:
     branches: [master, develop]
   pull_request:
     branches: [master]
+  workflow_call:
 
 env:
   PYTHON_VERSION: "3.11"
@@ -14,6 +15,7 @@ jobs:
   lint-and-test:
     name: Lint · Unit Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v4
