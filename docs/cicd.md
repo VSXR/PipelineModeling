@@ -8,11 +8,14 @@ commit → master
     ├─► ci.yml          (siempre)              — lint + tests unitarios
     │
     └─► ct.yml          (solo si cambia model/) — entrenamiento continuo
-            │
-            └─► cd.yml  (solo si CT crea Release) — build + push GHCR
+            │  job: train   →  entrena + promueve + crea release
+            └─ job: deploy  →  llama cd.yml via workflow_call
+                                    │
+                                    ├─ job: build-push  — build Docker + push GHCR
+                                    └─ job: smoke-test  — valida /health e /infer/
 ```
 
-Los tres workflows se encadenan por eventos: `ci.yml` en cada push; `ct.yml` solo cuando cambia `model/`; `cd.yml` solo cuando `ct.yml` publica un GitHub Release.
+`ci.yml` se dispara en cada push; `ct.yml` solo cuando cambia `model/`; `cd.yml` se encadena como reusable workflow desde el job `deploy` de `ct.yml`. El encadenamiento es directo (workflow_call) porque los releases creados con `GITHUB_TOKEN` no disparan eventos `on: release` en otros workflows.
 
 ---
 
@@ -36,27 +39,32 @@ Los tres workflows se encadenan por eventos: `ci.yml` en cada push; `ct.yml` sol
 - Push a `master` que modifique cualquier fichero bajo `model/`
 - `workflow_dispatch` (manual)
 
+**Runner:** `self-hosted` (Windows, ver sección runner más abajo). El runner debe estar en estado Idle antes de disparar este workflow.
+
 **Secretos necesarios:**
 
 | Secreto | Descripción |
 |---|---|
-| `MLFLOW_TRACKING_URI` | URI del servidor MLflow remoto |
+| `MLFLOW_TRACKING_URI` | URI del servidor MLflow — `http://localhost:5000` para runner local |
 | `MLFLOW_TRACKING_USERNAME` | Usuario de autenticación básica MLflow |
 | `MLFLOW_TRACKING_PASSWORD` | Contraseña de autenticación básica MLflow |
 | `GITHUB_TOKEN` | Automático — para crear tags y Releases |
 
-**Pasos:**
+**Job `train` — pasos:**
 1. Instala `model/requirements.txt`
 2. Ejecuta `python model/train.py` → llama `ModelTrainer` + `ModelPromoter`
    - `ModelTrainer` registra en MLflow: 6 parámetros, 5 métricas y 4 etiquetas de trazabilidad (`git.commit_hash`, `git.ref`, `environment`, `pipeline.version`)
    - El modelo se registra con alias `Staging` en el Model Registry
    - `ModelPromoter` valida umbrales; si los supera, asigna alias `Production`
 3. Parsea el output de `train.py` para extraer métricas e indicador `promoted`
-4. Calcula el siguiente tag semver (`v{major}.{minor}.{patch+1}`)
-5. **Solo si `promoted=true`:** crea tag Git y GitHub Release con tabla de métricas
+4. Calcula el siguiente tag semver (`v{major}.{minor}.{patch+1}`) con `git tag --sort`
+5. Solo si `promoted=true`: crea tag Git y GitHub Release con tabla de métricas
 6. Sube artefactos locales a GitHub Actions (retención 90 días)
 
-**Falla si:** las métricas no superan los umbrales o MLflow no es alcanzable.
+**Job `deploy` — encadenamiento a cd.yml:**
+Se ejecuta tras `train` solo si `promoted=true`. Llama a `cd.yml` via `workflow_call` pasando el tag semver como input. Los releases creados con `GITHUB_TOKEN` no disparan el evento `on: release` en otros workflows, por lo que el encadenamiento es directo entre jobs.
+
+**Falla si:** las métricas no superan los umbrales, MLflow no es alcanzable o el runner no está activo.
 
 **Umbrales de promoción (`model/train.py`):**
 
@@ -70,13 +78,15 @@ Los tres workflows se encadenan por eventos: `ci.yml` en cada push; `ct.yml` sol
 
 ### `cd.yml` — Continuous Delivery
 
-**Trigger:** publicación de un GitHub Release (generado automáticamente por `ct.yml`).
+**Trigger:**
+- `workflow_call` desde el job `deploy` de `ct.yml` (automático cuando `promoted=true`)
+- `on: release` publicado (disparo directo si se crea un release manualmente)
 
-**Pasos:**
+**Runner:** `ubuntu-latest` (GitHub-hosted). No requiere runner local.
 
 **job `build-push`:**
 1. Login en GHCR con `GITHUB_TOKEN`
-2. Extrae metadata de imagen — tags semver + SHA + `latest`
+2. Extrae metadata de imagen — tag semver recibido como input + `latest`
 3. Construye `services/api/Dockerfile` (stage `runtime`) con caché GHA
 4. Push a `ghcr.io/{owner}/{repo}/api`
 
@@ -97,10 +107,78 @@ Los tres workflows se encadenan por eventos: `ci.yml` en cada push; `ct.yml` sol
 
 | Tag | Ejemplo | Uso |
 |---|---|---|
-| Semver exacto | `v1.0.4` | Referencia inmutable para rollback |
-| Major.minor | `1.0` | Alias de rolling minor |
-| SHA corto | `sha-ef58985` | Trazabilidad exacta al commit |
+| Semver exacto | `v0.0.1` | Referencia inmutable para rollback |
 | `latest` | — | Despliegue de producción por defecto |
+
+```bash
+# Listar versiones publicadas
+gh api /user/packages/container/PipelineModeling%2Fapi/versions \
+  --jq '.[0] | {version: .name, created_at}'
+```
+
+---
+
+## Self-hosted runner (requerido por ct.yml)
+
+`ct.yml` ejecuta en el runner local (`runs-on: self-hosted`) porque MLflow está en `localhost:5000`. `ci.yml` y `cd.yml` usan runners GitHub-hosted (`ubuntu-latest`) y no requieren runner local.
+
+### Instalación (ya realizada)
+
+El runner está instalado en `C:\actions-runner` registrado como `pipeline-local` en el repositorio. Si necesitas reinstalarlo:
+
+```powershell
+# 1. Crear directorio y descargar
+New-Item -ItemType Directory -Force -Path C:\actions-runner | Out-Null
+Set-Location C:\actions-runner
+Invoke-WebRequest -Uri https://github.com/actions/runner/releases/download/v2.334.0/actions-runner-win-x64-2.334.0.zip -OutFile actions-runner-win-x64-2.334.0.zip
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+[System.IO.Compression.ZipFile]::ExtractToDirectory("$PWD\actions-runner-win-x64-2.334.0.zip", "$PWD")
+
+# 2. Configurar (el token caduca; generar uno nuevo en Settings → Actions → Runners → New runner)
+.\config.cmd --url https://github.com/VSXR/PipelineModeling --token <TOKEN>
+# Pulsar Enter en todas las preguntas; responder N a "run as service"
+```
+
+### Encender el runner
+
+Abrir PowerShell como Administrador y ejecutar:
+
+```powershell
+Set-Location C:\actions-runner
+.\run.cmd
+```
+
+El runner esta listo cuando aparece:
+
+```
+Connected to GitHub
+Listening for Jobs
+```
+
+Verificar estado desde la terminal del proyecto:
+
+```powershell
+gh api repos/VSXR/PipelineModeling/actions/runners --jq ".runners[] | {name, status, busy}"
+```
+
+El campo `status` debe ser `online` y `busy` debe ser `false` cuando esta libre.
+
+### Apagar el runner
+
+Pulsar `Ctrl+C` en la ventana donde corre `.\run.cmd`. El runner pasa a estado `offline` en GitHub y los jobs quedan en cola hasta que vuelva a estar activo.
+
+### Secuencia de uso habitual
+
+```
+1. Encender el stack Docker:    python manage.py start
+2. Encender el runner:          (Admin PS) Set-Location C:\actions-runner; .\run.cmd
+3. Disparar CT:                 gh workflow run ct.yml --repo VSXR/PipelineModeling --ref master
+4. Monitorizar:                 gh run watch --repo VSXR/PipelineModeling
+5. Apagar el runner:            Ctrl+C en la ventana del runner
+6. Apagar el stack:             python manage.py stop
+```
+
+El runner debe estar activo durante toda la ejecucion de `ct.yml`. `cd.yml` corre en runners GitHub-hosted y no necesita que el runner local este activo.
 
 ---
 

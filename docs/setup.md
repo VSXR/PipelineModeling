@@ -7,15 +7,18 @@
 | Python | 3.11 | `python --version` |
 | Git | 2.x | `git --version` |
 | Docker Desktop | 4.x | `docker compose version` |
+| GitHub CLI | 2.x | `gh --version` |
 
-> Docker ejecuta MLflow (registro de modelos), el OTel Collector (telemetría), Prometheus (scrape) y Grafana (dashboards). La API, el frontend y el seeder corren en local con `.venv`.
+Docker ejecuta MLflow (registro de modelos), el OTel Collector (telemetría), Prometheus (scrape) y Grafana (dashboards). La API, el frontend y el seeder corren en local con `.venv`.
+
+Para ejecutar el pipeline de entrenamiento continuo (`ct.yml`) se necesita además el runner local activo. Ver [docs/cicd.md](cicd.md) — sección "Self-hosted runner".
 
 ---
 
 ## Primera configuración
 
 ```powershell
-.\pipeline.ps1 setup
+python manage.py setup
 ```
 
 Internamente:
@@ -86,16 +89,12 @@ Copy-Item .env.example .env
 ---
 
 ## Iniciar el stack completo
- + Prometheus + Grafana
-docker compose up mlflow otel-collector prometheus grafana
-# Docker: MLflow + OTel Collector
-docker compose up mlflow otel-collector -d
 
-# Local: API + Frontend + Seeder
-.\pipeline.ps1 start
+```powershell
+python manage.py start
 ```
 
-O todo en Docker:
+O directamente con Docker Compose:
 
 ```powershell
 docker compose up -d
@@ -126,10 +125,14 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 
 ## Variables de entorno para CI/CD (GitHub Actions)
 
-Definir en *Settings → Secrets and variables → Actions* del repositorio:
+Definir en Settings → Secrets and variables → Actions del repositorio:
 
 | Secret | Descripción |
 |---|---|
-| `MLFLOW_TRACKING_URI` | URL del servidor MLflow de producción (omitir para usar `file:///tmp/mlruns`) |
+| `MLFLOW_TRACKING_URI` | `http://localhost:5000` para runner local; URL pública para runner hosted |
+| `MLFLOW_TRACKING_USERNAME` | Usuario de autenticación básica del servidor MLflow |
+| `MLFLOW_TRACKING_PASSWORD` | Contraseña de autenticación básica del servidor MLflow |
 
-El workflow `deploy.yml` usa `GITHUB_TOKEN` (automático) para push a GHCR.
+`GITHUB_TOKEN` es automático (no requiere configuración manual). `ct.yml` lo usa para crear tags y releases; `cd.yml` para push a GHCR.
+
+Ver [docs/cicd.md](cicd.md) para el detalle completo de secretos, permisos y el runner local.
