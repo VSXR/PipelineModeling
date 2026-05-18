@@ -112,16 +112,7 @@ jobs:
               build: !reset null
           EOF
           docker compose -f docker-compose.yml -f docker-compose.ci.yml \
-            up -d mlflow otel-collector api
-
-      - name: Wait for API readiness
-        run: |
-          for i in $(seq 1 30); do
-            curl -sf http://localhost:8000/health && echo "API ready" && exit 0
-            echo "Attempt $i/30 — waiting…"
-            sleep 3
-          done
-          echo "API did not become ready" && exit 1
+            up --wait --wait-timeout 180 mlflow otel-collector api
 
       - name: Run smoke tests
         run: |
