@@ -112,7 +112,15 @@ jobs:
               build: !reset null
           EOF
           docker compose -f docker-compose.yml -f docker-compose.ci.yml \
-            up --wait --wait-timeout 180 mlflow api
+            up -d mlflow otel-collector api
+          echo "Waiting for API to be ready (max 180s)..."
+          for i in $(seq 1 36); do
+            curl -sf http://localhost:8000/health > /dev/null 2>&1 && echo "API ready after $((i * 5))s" && break
+            [ "$i" = "36" ] && echo "API did not become ready after 180s" \
+              && docker compose -f docker-compose.yml -f docker-compose.ci.yml logs api mlflow \
+              && exit 1
+            echo "Waiting $((i * 5))s / 180s..."; sleep 5
+          done
 
       - name: Run smoke tests
         run: |
