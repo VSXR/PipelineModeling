@@ -110,6 +110,7 @@ jobs:
             api:
               image: ${API_IMAGE}
               build: !reset null
+              volumes: !reset []
           EOF
           docker compose -f docker-compose.yml -f docker-compose.ci.yml \
             up -d mlflow otel-collector api
