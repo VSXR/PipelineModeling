@@ -24,7 +24,6 @@ async def list_versions() -> VersionListResponse:
     """
     from datetime import datetime
 
-    import mlflow
     from mlflow import MlflowClient
 
     from core.config import settings
