@@ -61,8 +61,8 @@ jobs:
       - name: Compute next semantic tag
         id: semver
         run: |
-          $latest = git describe --tags --abbrev=0 2>$null
-          if (-not $latest) { $latest = "v0.0.0" }
+          $latest = git describe --tags --abbrev=0 2>$null; $ok = $LASTEXITCODE
+          if ($ok -ne 0 -or -not $latest) { $latest = "v0.0.0" }
           $parts = $latest.TrimStart('v').Split('.')
           $major = $parts[0]; $minor = $parts[1]; $patch = [int]$parts[2]
           "tag=v${major}.${minor}.$($patch + 1)" >> $env:GITHUB_OUTPUT
