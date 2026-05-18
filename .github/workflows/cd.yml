@@ -31,6 +31,7 @@ jobs:
     outputs:
       image_digest: ${{ steps.build.outputs.digest }}
       image_tag:    ${{ steps.meta.outputs.version }}
+      image_ref:    ${{ fromJSON(steps.meta.outputs.json).tags[0] }}
 
     steps:
       - uses: actions/checkout@v4
@@ -102,7 +103,7 @@ jobs:
 
       - name: Start ephemeral stack
         env:
-          API_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.build-push.outputs.image_tag }}
+          API_IMAGE: ${{ needs.build-push.outputs.image_ref }}
         run: |
           cat > docker-compose.ci.yml <<EOF
           services:
