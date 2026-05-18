@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 env:
   PYTHON_VERSION: "3.11"
@@ -25,6 +26,9 @@ jobs:
   train:
     name: Train · Validate · Promote · Release
     runs-on: self-hosted
+    outputs:
+      promoted: ${{ steps.train.outputs.promoted }}
+      tag:      ${{ steps.semver.outputs.tag }}
 
     env:
       MLFLOW_TRACKING_URI:      ${{ secrets.MLFLOW_TRACKING_URI }}
@@ -110,3 +114,12 @@ jobs:
             model/weights/model.pkl
             model/metrics.json
           retention-days: 90
+
+  deploy:
+    name: Deploy
+    needs: train
+    if: needs.train.outputs.promoted == 'true'
+    uses: ./.github/workflows/cd.yml
+    with:
+      tag: ${{ needs.train.outputs.tag }}
+    secrets: inherit
