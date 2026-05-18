@@ -79,6 +79,9 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Create .env for CI
+        run: touch .env
+
       - name: Start ephemeral stack
         env:
           API_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.build-push.outputs.image_tag }}
