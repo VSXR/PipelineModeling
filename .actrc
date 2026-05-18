@@ -1,0 +1,12 @@
+# Imagen con toolchain completo (git, curl, gh, pip, docker CLI).
+# La imagen minimal por defecto de act no incluye estas herramientas; ct.yml y cd.yml las requieren.
+--platform ubuntu-latest=catthehacker/ubuntu:act-22.04
+
+# Archivo de secretos local — excluido de git mediante .gitignore.
+--secret-file .secrets
+
+# Directorio para artefactos generados por actions/upload-artifact.
+--artifact-server-path /tmp/act-artifacts
+
+# Reutilizar contenedores entre ejecuciones para reducir tiempo de setup.
+--reuse

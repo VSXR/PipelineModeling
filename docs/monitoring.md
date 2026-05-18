@@ -164,7 +164,7 @@ $env:DRIFT_MAGNITUDE     = "3.0"
 .venv\Scripts\python services\seeder\seeder.py
 ```
 
-En unos segundos, `pipeline.data.driftgue activo y vuelca JSON estructurado a stdout, mientras que el exporter `prometheus` publica el scrape endpoint en `:9464``concavity_worst`.
+En unos segundos, `pipeline_data_drift_score` aparece en Prometheus con una etiqueta `feature` por cada una de las 30 dimensiones (por ejemplo, `radius_mean`, `concavity_worst`).
 
 ---
 
@@ -203,6 +203,29 @@ Registra el modelo actualmente en memoria (cargado desde `model.pkl`) en el MLfl
 ```
 train (partial_fit, mejora el modelo) → register (sube a MLflow) → switch (carga la nueva versión)
 ```
+
+---
+
+## Comportamiento de histogramas y precisión de percentiles
+
+El SDK OTel define por defecto los boundaries de histograma en unidades del instrumento. Para un instrumento declarado en segundos, los buckets por defecto son `[0, 5, 10, 25, ...]`, lo que hace que todas las solicitudes con latencia < 5 s aterricen en `le=5` y `histogram_quantile(0.99)` devuelva `4.95 s` en lugar del valor real.
+
+El archivo `services/api/core/metrics.py` configura boundaries explícitos mediante `ExplicitBucketHistogramAggregation`:
+
+| Instrumento | Boundaries (segundos) |
+|---|---|
+| `pipeline.inference.latency_seconds` | 0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0 |
+| `pipeline.model.load_duration_seconds` | 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0 |
+
+Los boundaries se aplican pasando `views=_HISTOGRAM_VIEWS` al `MeterProvider`. Cualquier cambio en los boundaries requiere reconstruir la imagen Docker de la API y esperar a que los datos con los buckets anteriores salgan de la ventana `rate()` de Prometheus (hasta 5 minutos) antes de que `histogram_quantile` devuelva valores correctos.
+
+## Advertencias de arranque en frío y ventana de rate()
+
+**Contaminación de la ventana rate() tras reinicio:** Cuando la API se reinicia, la serie de histograma anterior y la nueva coexisten en Prometheus durante hasta 5 minutos (duración de la ventana `rate([5m])`). Si los buckets cambiaron entre versiones, `histogram_quantile` puede devolver valores incoherentes durante ese periodo. Es transitorio y se auto-resuelve.
+
+**Retraso de exportación OTel:** El `PeriodicExportingMetricReader` exporta cada 15 s. Métricas de eventos recientes (como `pipeline_model_load_duration_seconds` tras un version switch) pueden no estar disponibles en Prometheus durante hasta 15 s. Las aserciones en tests que validan métricas inmediatamente después de un evento deben contemplar este margen.
+
+**Error rate post-chaos:** El escenario `chaos` inyecta errores de inferencia durante 240 s. Al finalizar, el reset se aplica en la API, pero los contadores de error permanecen en la ventana `rate([5m])` de Prometheus. Las alertas `HighInferenceErrorRate` y los tests de error rate mostrarán valores elevados durante los 5 minutos siguientes a la ejecución del escenario chaos.
 
 ---
 

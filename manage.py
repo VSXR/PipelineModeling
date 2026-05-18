@@ -220,9 +220,15 @@ def cmd_status(_: argparse.Namespace) -> None:
         _fail("docker compose ps fallo.")
 
     payload = result.stdout.strip()
-    services = json.loads(payload) if payload else []
-    if isinstance(services, dict):
-        services = [services]
+    if not payload:
+        services = []
+    else:
+        lines = [ln for ln in payload.splitlines() if ln.strip()]
+        parsed = [json.loads(ln) for ln in lines]
+        if len(parsed) == 1 and isinstance(parsed[0], list):
+            services = parsed[0]
+        else:
+            services = parsed if isinstance(parsed[0], dict) else parsed[0]
 
     if not services:
         print("  No hay contenedores levantados.\n")

@@ -25,6 +25,7 @@ python manage.py stop
 | http://localhost:3000 | Grafana — dashboards de observabilidad |
 | http://localhost:9090 | Prometheus — consultas de métricas |
 | http://localhost:55679 | OTel Collector — zPages |
+| http://localhost:13133 | OTel Collector — healthcheck extension |
 
 ---
 

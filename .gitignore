@@ -66,3 +66,16 @@ model/weights/
 
 # Estado en tiempo de ejecución
 .pids.json
+
+# SQLite locales (MLflow fuera de Docker)
+*.db
+*.sqlite
+
+# Reportes CI de pytest
+junit*.xml
+test-results/
+
+# act — secretos locales (NUNCA versionar)
+.secrets
+.secrets.*
+!.secrets.template

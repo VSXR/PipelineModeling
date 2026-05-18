@@ -11,13 +11,12 @@ services:
   mlflow:
     image: ghcr.io/mlflow/mlflow:v2.12.2
     container_name: pipeline_mlflow
-    command: >
-      mlflow server
-        --backend-store-uri sqlite:////mlflow/mlflow.db
-        --artifacts-destination /mlflow/artifacts
-        --serve-artifacts
-        --host 0.0.0.0
-        --port 5000
+    command:
+      - sh
+      - -c
+      - |
+        python -c "import sqlite3; c=sqlite3.connect('/mlflow/mlflow.db'); c.execute('PRAGMA journal_mode=WAL'); c.close()"
+        exec mlflow server --backend-store-uri sqlite:////mlflow/mlflow.db --artifacts-destination /mlflow/artifacts --serve-artifacts --host 0.0.0.0 --port 5000
     volumes:
       - mlflow_data:/mlflow
     ports:
@@ -25,9 +24,9 @@ services:
     networks:
       - pipeline_net
     healthcheck:
-      test: ["CMD", "python", "-c", "import requests; requests.get('http://127.0.0.1:5000/health', timeout=5).raise_for_status()"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health')"]
       interval: 10s
-      timeout: 8s
+      timeout: 5s
       retries: 10
       start_period: 60s
     restart: unless-stopped
@@ -41,10 +40,13 @@ services:
     ports:
       - "4317:4317"
       - "4318:4318"
+      - "13133:13133"
       - "55679:55679"
       - "9464:9464"
     networks:
       - pipeline_net
+    healthcheck:
+      disable: true
     restart: unless-stopped
 
   prometheus:
@@ -131,6 +133,11 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
     restart: unless-stopped
 
   frontend:
@@ -150,6 +157,12 @@ services:
     depends_on:
       api:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8501/_stcore/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
 
   seeder:
@@ -169,4 +182,9 @@ services:
     depends_on:
       api:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
     restart: unless-stopped

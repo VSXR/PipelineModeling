@@ -176,6 +176,17 @@ mlflow.tracking.MlflowClient().set_registered_model_alias('pipeline-model', 'Pro
 
 El modelo en memoria se preserva si MLflow es inalcanzable durante el switch.
 
+### Comportamiento esperado ante referencias inexistentes
+
+`POST /version/switch` con un `model_ref` que no existe en el MLflow Model Registry retorna **HTTP 500**. Esto es el comportamiento correcto: la API intenta cargar el artefacto desde MLflow, obtiene una excepción del cliente MLflow, preserva el modelo activo en memoria y registra `pipeline.version.switches{status="error"}`. No retorna 404 porque la operación de carga falla en tiempo de ejecución, no en la validación del input.
+
+| `model_ref` | Resultado HTTP | Motivo |
+|---|---|---|
+| Vacío o ausente | 422 | Validación Pydantic — campo requerido |
+| Referencia inexistente en MLflow | 500 | Excepción del cliente MLflow durante la carga |
+| Número de versión válido | 200 | Hot-swap completado |
+| Alias válido (`Production`, `Staging`) | 200 | MLflow resuelve alias a versión concreta |
+
 ---
 
 ## Consultar versiones publicadas

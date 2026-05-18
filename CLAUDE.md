@@ -1,33 +1,28 @@
-# PipelineModeling - Guía de Proyecto para IA
+# PipelineModeling: Contexto Operativo y Arquitectura
 
-## Operaciones CLI
-| Comando | Acción |
-|---|---|
-| `python manage.py setup` | Configuración inicial y creación del entorno virtual |
-| `python manage.py start` | Arranque del stack completo |
-| `python manage.py stop` | Parada de todos los servicios |
-| `python manage.py status` | Verificación de estado de servicios |
-| `python manage.py simulate --scenario all` | Ejecución de todos los escenarios de resiliencia |
+Sistema de aprendizaje continuo para clasificación binaria basado en el dataset Breast Cancer Wisconsin. Implementa el ciclo CRISP-DM con inferencia en tiempo real, reentrenamiento incremental y observabilidad completa.
 
-## Testing
-| Comando | Alcance |
-|---|---|
-| `python manage.py test` | Suite completa |
-| `python manage.py test --unit` | Unitarios excluyendo infraestructura API |
-| `python manage.py test --integration` | Integración de observabilidad y API |
+## Stack Tecnológico y Servicios
 
-## Arquitectura y Estándares
-- **Separación de espacios:** Aislamiento absoluto entre el código fuente y los datos de ejecución.
-- **Principios:** Aplicación estricta de SOLID y DRY.
-- **Paradigma:** Enfoque funcional y declarativo preferente.
-- **Gestión de modelos:** MLflow Model Registry opera como fuente de verdad exclusiva para los artefactos. El registro requiere superar umbrales de métricas predefinidos.
-- **Flujos automatizados:** Workflows de GitHub Actions independientes para integración continua, reentrenamiento continuo y despliegue continuo.
-- **Telemetría:** Emisión nativa vía OpenTelemetry hacia OTel Collector, exportación a Prometheus y visualización en Grafana.
+* **api** (FastAPI, :8000): Inferencia, entrenamiento (SGDClassifier) y gestión de versiones.
+* **frontend** (Streamlit, :8501): Panel de control MLOps.
+* **seeder** (Python Async): Inyección de tráfico sintético y simulación de deriva de datos (drift).
+* **mlflow** (MLflow, :5000): Registro de modelos y tracking de experimentos.
+* **otel-collector** (OpenTelemetry, :4317): Recolección de telemetría gRPC.
+* **prometheus** (Prometheus, :9090): Almacenamiento de series temporales.
+* **grafana** (Grafana, :3000): Dashboards de observabilidad.
 
-## Reglas de Interacción
-- Estructurar el texto exclusivamente mediante párrafos, listas y tablas.
-- Eliminar preámbulos, transiciones y explicaciones elementales.
-- Evitar el uso de comillas simples en el texto narrativo.
-- Mantener los bloques de código limpios de comentarios, documentando únicamente las decisiones arquitectónicas no evidentes.
-- Identificar casos borde y fallos potenciales antes de proponer implementaciones.
-- Solicitar parámetros adicionales mediante una lista de variables necesarias si la información inicial resulta insuficiente.
+## Operaciones de Ciclo de Vida (manage.py)
+
+* `setup`: Configuración inicial, dependencias y entrenamiento base.
+* `start` / `stop`: Control del stack Docker Compose.
+* `status`: Verificación de salud de los contenedores.
+* `test`: Ejecución de pruebas (unitarias, integración, observabilidad).
+* `simulate --scenario [drift|version-fail|training-errors|chaos|all]`: Pruebas de resiliencia y simulaciones.
+
+## Estándares del Proyecto y Protocolo de Asistencia
+
+* **Paradigmas**: Priorizar SOLID, DRY y diseño funcional/declarativo.
+* **Estilo de Código**: Bloques limpios. Cero comentarios a menos que justifiquen decisiones arquitectónicas complejas.
+* **Restricciones de Formato**: Prohibido el uso de comillas simples en texto narrativo. Prohibido el uso de blockquotes.
+* **Evaluación Técnica**: Toda solución propuesta debe incluir una identificación explícita de casos borde, condiciones de carrera y fallos potenciales.
