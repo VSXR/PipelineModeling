@@ -58,8 +58,6 @@ class ModelManager:
             self._version: str = "unloaded"
             self._initialised = True
 
-    # ── startup load (local file, no MLflow dependency) ───────────────────────
-
     async def _load_weights(self, model_path: Optional[str] = None) -> None:
         path = Path(model_path or settings.model_path)
         loop = asyncio.get_running_loop()
@@ -81,8 +79,6 @@ class ModelManager:
         async with self._swap_lock:
             await self._load_weights(model_path)
 
-    # ── inference ─────────────────────────────────────────────────────────────
-
     async def predict(self, features: list) -> dict:
         self._init_locks()
         async with self._infer_lock:
@@ -102,8 +98,6 @@ class ModelManager:
             )
             return {"prediction": prediction, "probability": probability}
 
-    # ── incremental training ──────────────────────────────────────────────────
-
     async def partial_fit(self, features: list, labels: list) -> None:
         self._init_locks()
         async with self._swap_lock:
@@ -118,8 +112,6 @@ class ModelManager:
             await loop.run_in_executor(None, self._predictor.partial_fit, X, y)
             await loop.run_in_executor(None, self._predictor.save, settings.model_path)
             self._version = datetime.now(timezone.utc).isoformat()
-
-    # ── hot-swap via MLflow Model Registry ───────────────────────────────────
 
     async def switch_version(self, model_ref: str) -> str:
         """
@@ -148,8 +140,6 @@ class ModelManager:
                 raise
 
         return previous
-
-    # ── register current model to MLflow ─────────────────────────────────────
 
     async def register_to_mlflow(self) -> str:
         self._init_locks()
@@ -202,8 +192,6 @@ class ModelManager:
         sk_model = mlflow.sklearn.load_model(f"models:/{model_name}/{model_ref}")
         self._predictor = SKLearnPredictor(sk_model)
         self._version = model_ref
-
-    # ── properties ────────────────────────────────────────────────────────────
 
     @property
     def version(self) -> str:

@@ -34,7 +34,6 @@ WORKDIR /app
 
 COPY --from=builder /install /usr/local
 
-# API source
 COPY services/api/ .
 
 RUN mkdir -p /app/model/weights \

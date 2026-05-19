@@ -52,8 +52,6 @@ class DriftTracker:
             cls._instance._infer_buffer: List[List[float]] = []
         return cls._instance
 
-    # ── public API ────────────────────────────────────────────────────────────
-
     def update_batch(self, features: List[List[float]]) -> None:
         """Called by /train/: update EMA immediately from a labeled batch."""
         if not features:
@@ -67,8 +65,6 @@ class DriftTracker:
             batch = np.array(self._infer_buffer, dtype=np.float64)
             self._infer_buffer.clear()
             self._update_ema(batch)
-
-    # ── internals ─────────────────────────────────────────────────────────────
 
     def _update_ema(self, batch: np.ndarray) -> None:
         batch_means = batch.mean(axis=0)

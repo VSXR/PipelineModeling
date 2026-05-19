@@ -47,7 +47,6 @@ _provider = _build_provider()
 metrics.set_meter_provider(_provider)
 _meter = metrics.get_meter("pipeline.api", version="1.0.0")
 
-# ── observable state (gauges backed by callbacks) ─────────────────────────────
 _model_loaded_flag: int = 0
 _drift_scores: dict[str, float] = {}
 _model_quality: dict[str, float] = {}
@@ -83,7 +82,6 @@ _meter.create_observable_gauge(
     description="Model quality metrics (accuracy, f1, roc_auc) from the last training run",
 )
 
-# ── push instruments ──────────────────────────────────────────────────────────
 _inference_requests = _meter.create_counter(
     "pipeline.inference.requests",
     description="Cumulative inference requests by outcome",
@@ -112,7 +110,6 @@ _model_load_duration = _meter.create_histogram(
 )
 
 
-# ── public facade (SRP: one object owns all emission logic) ───────────────────
 class PipelineMetrics:
     """
     Singleton facade over OTel instruments.

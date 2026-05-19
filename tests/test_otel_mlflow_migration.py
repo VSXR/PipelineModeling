@@ -32,7 +32,6 @@ def _reset_model_manager() -> Generator:
     ModelManager._instance = None
 
 
-# ── 1. PipelineMetrics — no-op mode ──────────────────────────────────────────
 
 class TestPipelineMetricsNoOp:
     """OTel facade must work when OTEL_EXPORTER_OTLP_ENDPOINT is absent."""
@@ -79,7 +78,6 @@ class TestPipelineMetricsNoOp:
         assert m._model_loaded_flag == 0
 
 
-# ── 2. ModelManager — startup without MLflow ─────────────────────────────────
 
 class TestModelManagerStartup:
 
@@ -125,7 +123,7 @@ class TestModelManagerStartup:
             assert not hasattr(mm, "_git_repo_path"), "_git_repo_path must not exist on ModelManager"
 
 
-# ── 3. switch_version — MLflow registry call ─────────────────────────────────
+
 
 class TestVersionSwitch:
 
@@ -238,7 +236,6 @@ class TestVersionSwitch:
             "No ok metric must be emitted when switch fails"
 
 
-# ── 4. DriftTracker — OTel emission (no Prometheus) ──────────────────────────
 
 class TestDriftTrackerOTelIntegration:
 
@@ -279,7 +276,6 @@ class TestDriftTrackerOTelIntegration:
         assert prometheus_attrs == [], f"Prometheus attributes found: {prometheus_attrs}"
 
 
-# ── 5. Config — deprecated DVC/git fields removed ────────────────────────────
 
 class TestConfigClean:
 

@@ -48,7 +48,6 @@ REQUIREMENTS = [
 ]
 
 
-# Output helpers
 def _header(msg: str) -> None:
     print(f"\n  {msg}")
 
@@ -219,7 +218,7 @@ def _stop_actions_runner() -> None:
         if result.returncode == 0:
             _ok(f"{proc} terminado.")
         elif result.returncode == 128:
-            pass  # proceso no estaba corriendo
+            pass
         else:
             needs_elevation = True
 
@@ -435,7 +434,6 @@ def cmd_test(args: argparse.Namespace) -> None:
     _ok("Todos los tests pasaron.")
 
 
-# Simulate scenarios
 _SAMPLE_NORMAL = [
     17.99,
     10.38,
@@ -599,7 +597,6 @@ def cmd_simulate(args: argparse.Namespace) -> None:
     fn()
 
 
-# Parser and dispatch
 _COMMANDS: dict[str, Callable[[argparse.Namespace], None]] = {
     "setup": cmd_setup,
     "start": cmd_start,
@@ -643,7 +640,6 @@ def _build_parser() -> argparse.ArgumentParser:
 
     return p
 
-# Entry point del CLI program
 if __name__ == "__main__":
     args = _build_parser().parse_args()
     _COMMANDS[args.command](args)

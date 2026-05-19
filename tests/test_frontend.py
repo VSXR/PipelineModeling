@@ -20,7 +20,6 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:8501")
 _TIMEOUT = 15_000  # ms
 
 
-# ── session-level availability check ─────────────────────────────────────────
 
 @pytest.fixture(scope="session", autouse=True)
 def require_frontend():
@@ -34,14 +33,12 @@ def require_frontend():
         pytest.skip(f"Frontend not available at {FRONTEND_URL} — {exc}")
 
 
-# ── helpers ───────────────────────────────────────────────────────────────────
 
 def _goto(page, path: str = "") -> None:
     page.goto(f"{FRONTEND_URL}{path}")
     page.wait_for_load_state("networkidle", timeout=_TIMEOUT)
 
 
-# ── FE-01: page title ─────────────────────────────────────────────────────────
 
 def test_fe01_page_title(page):
     """Page title contains the project name."""
@@ -49,7 +46,6 @@ def test_fe01_page_title(page):
     assert "PipelineModeling" in page.title()
 
 
-# ── FE-02: four tabs present ──────────────────────────────────────────────────
 
 def test_fe02_tabs_count(page):
     """Exactly 4 navigation tabs are visible: Inference, Training, Versioning, Chaos/Debug."""
@@ -60,7 +56,6 @@ def test_fe02_tabs_count(page):
     assert count == 4, f"Expected 4 tabs, found {count}"
 
 
-# ── FE-03: header API status indicator ───────────────────────────────────────
 
 def test_fe03_sidebar_api_status(page):
     """Header renders an API status indicator (Online or Offline) without crashing."""
@@ -75,7 +70,6 @@ def test_fe03_sidebar_api_status(page):
     )
 
 
-# ── FE-04: inference tab renders numeric inputs ───────────────────────────────
 
 @pytest.mark.fragile
 def test_fe04_inference_form_inputs(page):
@@ -98,7 +92,6 @@ def test_fe04_inference_form_inputs(page):
     assert count >= 30, f"Expected at least 30 number inputs, found {count}"
 
 
-# ── FE-05: versioning tab renders version controls ───────────────────────────
 
 def test_fe05_versioning_tab_renders(page):
     """Versioning tab loads and shows at least a Refresh list button."""
@@ -116,7 +109,6 @@ def test_fe05_versioning_tab_renders(page):
     )
 
 
-# ── FE-06: no unhandled Python traceback visible ──────────────────────────────
 
 def test_fe06_no_traceback_on_load(page):
     """Page loads without an unhandled Python traceback being displayed."""
@@ -128,7 +120,6 @@ def test_fe06_no_traceback_on_load(page):
     )
 
 
-# ── FE-07: inference submit shows result ─────────────────────────────────────
 
 @pytest.mark.fragile
 def test_fe07_inference_submit_returns_result(page):

@@ -20,8 +20,6 @@ import httpx
 import pytest
 
 
-# ── fixtures ──────────────────────────────────────────────────────────────────
-
 
 @pytest.fixture(scope="session")
 def prometheus() -> httpx.Client:
@@ -89,8 +87,6 @@ def frontend_http() -> httpx.Client:
         yield c
 
 
-# ── helpers ───────────────────────────────────────────────────────────────────
-
 
 def _promql(prom: httpx.Client, query: str) -> list:
     r = prom.get("/api/v1/query", params={"query": query})
@@ -107,8 +103,6 @@ def _scalar(result: list) -> float | None:
     value = float(result[0]["value"][1])
     return None if value != value else value  # propagate NaN as None
 
-
-# ── HA-07..HA-12: infrastructure health ──────────────────────────────────────
 
 
 class TestInfrastructureHealth:
@@ -140,8 +134,6 @@ class TestInfrastructureHealth:
         r = frontend_http.get("/_stcore/health")
         assert r.status_code == 200
 
-
-# ── PA-01..PA-05: baseline metric presence ───────────────────────────────────
 
 
 class TestPrometheusBaselineMetrics:
@@ -178,8 +170,6 @@ class TestPrometheusBaselineMetrics:
             f"Expected 30 drift score series (one per feature), got {_scalar(result)}"
         )
 
-
-# ── PA-06..PA-10: performance and operational assertions ─────────────────────
 
 
 class TestPrometheusOperationalMetrics:
