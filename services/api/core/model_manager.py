@@ -13,6 +13,7 @@ Version backend: MLflow Model Registry.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import random
 import time
@@ -41,6 +42,14 @@ class ModelManager:
     def get_instance(cls) -> "ModelManager":
         return cls()
 
+    @staticmethod
+    def _read_metrics_file(model_path: Path) -> dict[str, float]:
+        metrics_path = model_path.parent.parent / "metrics.json"
+        try:
+            return json.loads(metrics_path.read_text())
+        except (FileNotFoundError, json.JSONDecodeError):
+            return {}
+
     def _init_locks(self) -> None:
         if not self._initialised:
             self._infer_lock: asyncio.Lock = asyncio.Lock()
@@ -63,6 +72,9 @@ class ModelManager:
             await loop.run_in_executor(None, self._predictor.save, str(path))
         self._version = datetime.now(timezone.utc).isoformat()
         pipeline_metrics.set_model_loaded(True)
+        pipeline_metrics.set_model_quality(
+            self._read_metrics_file(Path(model_path or settings.model_path))
+        )
 
     async def load(self, model_path: Optional[str] = None) -> None:
         self._init_locks()
@@ -127,6 +139,9 @@ class ModelManager:
                 duration = time.perf_counter() - t0
                 pipeline_metrics.set_model_loaded(True)
                 pipeline_metrics.record_version_switch(status="ok", duration_s=duration)
+                pipeline_metrics.set_model_quality(
+                    self._read_metrics_file(Path(settings.model_path))
+                )
             except Exception:
                 if self._predictor is not None:
                     pipeline_metrics.set_model_loaded(True)

@@ -1,0 +1,238 @@
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: model-quality-alerts
+    folder: PipelineModeling
+    interval: 1m
+    rules:
+
+      - uid: alert-accuracy-low
+        title: "Model accuracy below threshold (< 0.85)"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              expr: pipeline_model_quality{metric="accuracy"}
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              refId: B
+              datasource: { type: __expr__, uid: __expr__ }
+              reducer: last
+              expression: A
+          - refId: C
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              conditions:
+                - evaluator: { params: [0.85], type: lt }
+                  operator:  { type: and }
+                  query:     { params: [B] }
+                  reducer:   { params: [], type: last }
+                  type: query
+              expression: B
+        noDataState: NoData
+        execErrState: Error
+        for: 2m
+        annotations:
+          summary: "Model accuracy below 0.85 promotion threshold"
+          description: "Check recent training runs in MLflow. Accuracy has been below threshold for at least 2 minutes."
+        labels:
+          severity: warning
+          category: model-quality
+
+      - uid: alert-f1-low
+        title: "Model F1 score below threshold (< 0.82)"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              expr: pipeline_model_quality{metric="f1"}
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              refId: B
+              datasource: { type: __expr__, uid: __expr__ }
+              reducer: last
+              expression: A
+          - refId: C
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              conditions:
+                - evaluator: { params: [0.82], type: lt }
+                  operator:  { type: and }
+                  query:     { params: [B] }
+                  reducer:   { params: [], type: last }
+                  type: query
+              expression: B
+        noDataState: NoData
+        execErrState: Error
+        for: 2m
+        annotations:
+          summary: "Model F1 score below 0.82 promotion threshold"
+          description: "F1 score has been below threshold for at least 2 minutes."
+        labels:
+          severity: warning
+          category: model-quality
+
+      - uid: alert-rocauc-low
+        title: "Model ROC-AUC below threshold (< 0.90)"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              expr: pipeline_model_quality{metric="roc_auc"}
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              refId: B
+              datasource: { type: __expr__, uid: __expr__ }
+              reducer: last
+              expression: A
+          - refId: C
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              conditions:
+                - evaluator: { params: [0.90], type: lt }
+                  operator:  { type: and }
+                  query:     { params: [B] }
+                  reducer:   { params: [], type: last }
+                  type: query
+              expression: B
+        noDataState: NoData
+        execErrState: Error
+        for: 2m
+        annotations:
+          summary: "Model ROC-AUC below 0.90 promotion threshold"
+          description: "ROC-AUC has been below threshold for at least 2 minutes."
+        labels:
+          severity: warning
+          category: model-quality
+
+      - uid: alert-model-not-loaded
+        title: "Model not loaded"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              expr: pipeline_model_loaded
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              refId: B
+              datasource: { type: __expr__, uid: __expr__ }
+              reducer: last
+              expression: A
+          - refId: C
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              conditions:
+                - evaluator: { params: [1], type: lt }
+                  operator:  { type: and }
+                  query:     { params: [B] }
+                  reducer:   { params: [], type: last }
+                  type: query
+              expression: B
+        noDataState: Alerting
+        execErrState: Alerting
+        for: 30s
+        annotations:
+          summary: "API model not loaded (pipeline_model_loaded == 0)"
+          description: "No model is resident in memory. Hot-swap may be in progress or startup load failed."
+        labels:
+          severity: critical
+          category: availability
+
+      - uid: alert-drift-high
+        title: "Data drift score above threshold on any feature (> 1.0)"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              expr: max(pipeline_data_drift_score) by (feature)
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              refId: B
+              datasource: { type: __expr__, uid: __expr__ }
+              reducer: last
+              expression: A
+          - refId: C
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              refId: C
+              datasource: { type: __expr__, uid: __expr__ }
+              conditions:
+                - evaluator: { params: [1.0], type: gt }
+                  operator:  { type: and }
+                  query:     { params: [B] }
+                  reducer:   { params: [], type: last }
+                  type: query
+              expression: B
+        noDataState: NoData
+        execErrState: Error
+        for: 3m
+        annotations:
+          summary: "Sustained data drift detected on feature {{ $labels.feature }}"
+          description: "Normalised mean-shift above 1.0 for 3+ minutes. Seeder drift onset is 120s with magnitude 2.0 — drifted features typically reach 2-5x this threshold."
+        labels:
+          severity: warning
+          category: data-quality

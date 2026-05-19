@@ -50,6 +50,7 @@ _meter = metrics.get_meter("pipeline.api", version="1.0.0")
 # ── observable state (gauges backed by callbacks) ─────────────────────────────
 _model_loaded_flag: int = 0
 _drift_scores: dict[str, float] = {}
+_model_quality: dict[str, float] = {}
 
 
 def _obs_model_loaded(options) -> Iterable[Observation]:
@@ -61,6 +62,11 @@ def _obs_drift_scores(options) -> Iterable[Observation]:
         yield Observation(score, {"feature": feature})
 
 
+def _obs_model_quality(options) -> Iterable[Observation]:
+    for metric_name, value in list(_model_quality.items()):
+        yield Observation(value, {"metric": metric_name})
+
+
 _meter.create_observable_gauge(
     "pipeline.model.loaded",
     callbacks=[_obs_model_loaded],
@@ -70,6 +76,11 @@ _meter.create_observable_gauge(
     "pipeline.data.drift_score",
     callbacks=[_obs_drift_scores],
     description="Normalised mean-shift drift score per feature",
+)
+_meter.create_observable_gauge(
+    "pipeline.model.quality",
+    callbacks=[_obs_model_quality],
+    description="Model quality metrics (accuracy, f1, roc_auc) from the last training run",
 )
 
 # ── push instruments ──────────────────────────────────────────────────────────
@@ -124,6 +135,10 @@ class PipelineMetrics:
 
     def set_drift_score(self, feature: str, score: float) -> None:
         _drift_scores[feature] = score
+
+    def set_model_quality(self, quality: dict[str, float]) -> None:
+        global _model_quality
+        _model_quality.update(quality)
 
     def record_version_switch(self, *, status: str, duration_s: float = 0.0) -> None:
         _version_switches.add(1, {"status": status})

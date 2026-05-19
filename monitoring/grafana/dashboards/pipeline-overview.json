@@ -2,7 +2,7 @@
   "uid": "pipeline-overview",
   "title": "PipelineModeling Overview",
   "schemaVersion": 38,
-  "version": 2,
+  "version": 3,
   "refresh": "15s",
   "time": { "from": "now-30m", "to": "now" },
   "timezone": "browser",
@@ -133,7 +133,20 @@
         "defaults": {
           "unit": "short",
           "min": 0,
-          "custom": { "lineWidth": 1, "fillOpacity": 0, "spanNulls": true }
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "spanNulls": true,
+            "thresholdsStyle": { "mode": "line" }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "transparent", "value": null },
+              { "color": "orange",      "value": 1.0  },
+              { "color": "red",         "value": 2.5  }
+            ]
+          }
         },
         "overrides": []
       },
@@ -367,6 +380,174 @@
       "options": {
         "tooltip": { "mode": "multi", "sort": "none" },
         "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["mean", "last"] }
+      }
+    },
+
+    {
+      "id": 11,
+      "type": "row",
+      "title": "Model Quality (from metrics.json)",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 28, "w": 24, "h": 1 }
+    },
+
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "Model quality metrics",
+      "description": "Accuracy, F1, ROC-AUC from the last completed training run. Alert thresholds: accuracy ≥ 0.85 · f1 ≥ 0.82 · roc_auc ≥ 0.90.",
+      "gridPos": { "x": 0, "y": 29, "w": 12, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "pipeline_model_quality{metric=\"accuracy\"}",
+          "legendFormat": "Accuracy"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "pipeline_model_quality{metric=\"f1\"}",
+          "legendFormat": "F1"
+        },
+        {
+          "refId": "C",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "pipeline_model_quality{metric=\"roc_auc\"}",
+          "legendFormat": "ROC-AUC"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 4,
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red",    "value": null },
+              { "color": "yellow", "value": 0.80 },
+              { "color": "green",  "value": 0.90 }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Accuracy" },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "red",    "value": null },
+                    { "color": "yellow", "value": 0.80 },
+                    { "color": "green",  "value": 0.85 }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "F1" },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "red",    "value": null },
+                    { "color": "yellow", "value": 0.78 },
+                    { "color": "green",  "value": 0.82 }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "ROC-AUC" },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "red",    "value": null },
+                    { "color": "yellow", "value": 0.86 },
+                    { "color": "green",  "value": 0.90 }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "orientation": "horizontal"
+      }
+    },
+
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Model quality over time",
+      "description": "Quality metrics trend. Each step corresponds to a training run or version switch that updated metrics.json.",
+      "gridPos": { "x": 12, "y": 29, "w": 12, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "pipeline_model_quality{metric=\"accuracy\"}",
+          "legendFormat": "Accuracy"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "pipeline_model_quality{metric=\"f1\"}",
+          "legendFormat": "F1"
+        },
+        {
+          "refId": "C",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "pipeline_model_quality{metric=\"roc_auc\"}",
+          "legendFormat": "ROC-AUC"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0.5,
+          "max": 1.0,
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "spanNulls": true,
+            "thresholdsStyle": { "mode": "dashed" }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "transparent", "value": null },
+              { "color": "red",         "value": 0.80 },
+              { "color": "yellow",      "value": 0.85 },
+              { "color": "green",       "value": 0.90 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "descending" },
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["last"] }
       }
     }
 
