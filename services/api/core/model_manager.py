@@ -44,7 +44,7 @@ class ModelManager:
 
     @staticmethod
     def _read_metrics_file(model_path: Path) -> dict[str, float]:
-        metrics_path = model_path.parent.parent / "metrics.json"
+        metrics_path = model_path.parent / "metrics.json"
         try:
             return json.loads(metrics_path.read_text())
         except (FileNotFoundError, json.JSONDecodeError):

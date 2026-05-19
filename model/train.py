@@ -13,7 +13,7 @@ from promote import ModelPromoter
 
 BASE         = Path(__file__).parent
 WEIGHTS_PATH = BASE / "weights" / "model.pkl"
-METRICS_PATH = BASE / "metrics.json"
+METRICS_PATH = WEIGHTS_PATH.parent / "metrics.json"
 
 THRESHOLDS: dict[str, float] = {
     "accuracy": 0.85,

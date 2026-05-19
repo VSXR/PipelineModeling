@@ -192,7 +192,7 @@ groups:
           category: availability
 
       - uid: alert-drift-high
-        title: "Data drift score above threshold on any feature (> 1.0)"
+        title: "Data drift score above threshold on any feature (> 0.1)"
         condition: C
         data:
           - refId: A
@@ -221,7 +221,7 @@ groups:
               refId: C
               datasource: { type: __expr__, uid: __expr__ }
               conditions:
-                - evaluator: { params: [1.0], type: gt }
+                - evaluator: { params: [0.1], type: gt }
                   operator:  { type: and }
                   query:     { params: [B] }
                   reducer:   { params: [], type: last }
@@ -232,7 +232,7 @@ groups:
         for: 3m
         annotations:
           summary: "Sustained data drift detected on feature {{ $labels.feature }}"
-          description: "Normalised mean-shift above 1.0 for 3+ minutes. Seeder drift onset is 120s with magnitude 2.0 — drifted features typically reach 2-5x this threshold."
+          description: "Normalised mean-shift above 0.1 for 3+ minutes. With DRIFT_MAGNITUDE=2.0 on the breast cancer dataset, drifted features reach 0.10-0.15 while stable features stay near 0."
         labels:
           severity: warning
           category: data-quality

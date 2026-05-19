@@ -2,7 +2,7 @@
   "uid": "pipeline-overview",
   "title": "PipelineModeling Overview",
   "schemaVersion": 38,
-  "version": 3,
+  "version": 4,
   "refresh": "15s",
   "time": { "from": "now-30m", "to": "now" },
   "timezone": "browser",
@@ -143,8 +143,8 @@
             "mode": "absolute",
             "steps": [
               { "color": "transparent", "value": null },
-              { "color": "orange",      "value": 1.0  },
-              { "color": "red",         "value": 2.5  }
+              { "color": "orange",      "value": 0.1  },
+              { "color": "red",         "value": 0.2  }
             ]
           }
         },

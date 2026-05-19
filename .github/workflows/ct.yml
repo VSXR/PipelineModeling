@@ -87,7 +87,7 @@ jobs:
           name: model-${{ github.sha }}
           path: |
             model/weights/model.pkl
-            model/metrics.json
+            model/weights/metrics.json
           retention-days: 90
 
   deploy:
