@@ -39,16 +39,18 @@ commit → master
 - Push a `master` que modifique cualquier fichero bajo `model/`
 - `workflow_dispatch` (manual)
 
-**Runner:** `self-hosted` (Windows, ver sección runner más abajo). El runner debe estar en estado Idle antes de disparar este workflow.
+**Runner:** `ubuntu-latest` (GitHub-hosted). No requiere runner local ni infraestructura propia.
 
-**Secretos necesarios:**
+**Secretos — todos opcionales:**
 
-| Secreto | Descripción |
-|---|---|
-| `MLFLOW_TRACKING_URI` | URI del servidor MLflow — `http://localhost:5000` para runner local |
-| `MLFLOW_TRACKING_USERNAME` | Usuario de autenticación básica MLflow |
-| `MLFLOW_TRACKING_PASSWORD` | Contraseña de autenticación básica MLflow |
-| `GITHUB_TOKEN` | Automático — para crear tags y Releases |
+| Secreto | Por defecto si ausente | Descripción |
+|---|---|---|
+| `MLFLOW_TRACKING_URI` | `file:./mlruns` | URI del servidor MLflow. Si no se configura, usa tracking local en el runner efímero |
+| `MLFLOW_TRACKING_USERNAME` | _(vacío)_ | Usuario de autenticación básica MLflow |
+| `MLFLOW_TRACKING_PASSWORD` | _(vacío)_ | Contraseña de autenticación básica MLflow |
+| `GITHUB_TOKEN` | Automático | Para crear tags y Releases |
+
+Con los defaults, el pipeline funciona en cualquier fork sin configurar ningún secreto.
 
 **Job `train` — pasos:**
 1. Instala `model/requirements.txt`
@@ -59,12 +61,12 @@ commit → master
 3. Parsea el output de `train.py` para extraer métricas e indicador `promoted`
 4. Calcula el siguiente tag semver (`v{major}.{minor}.{patch+1}`) con `git tag --sort`
 5. Solo si `promoted=true`: crea tag Git y GitHub Release con tabla de métricas
-6. Sube artefactos locales a GitHub Actions (retención 90 días)
+6. Sube artefactos locales a GitHub Actions (retención 90 días): `model/weights/model.pkl` + `model/metrics.json`
 
 **Job `deploy` — encadenamiento a cd.yml:**
 Se ejecuta tras `train` solo si `promoted=true`. Llama a `cd.yml` via `workflow_call` pasando el tag semver como input. Los releases creados con `GITHUB_TOKEN` no disparan el evento `on: release` en otros workflows, por lo que el encadenamiento es directo entre jobs.
 
-**Falla si:** las métricas no superan los umbrales, MLflow no es alcanzable o el runner no está activo.
+**Falla si:** las métricas no superan los umbrales o el entrenamiento lanza una excepción.
 
 **Umbrales de promoción (`model/train.py`):**
 
@@ -91,11 +93,13 @@ Se ejecuta tras `train` solo si `promoted=true`. Llama a `cd.yml` via `workflow_
 4. Push a `ghcr.io/{owner}/{repo}/api`
 
 **job `smoke-test`** (depende de `build-push`):
-1. Levanta stack efímero: `mlflow + otel-collector + api` con la imagen recién publicada
-2. Espera readiness de la API (max 90 s, sondeo cada 3 s)
-3. Valida `GET /health` → 200
-4. Valida `POST /infer/` con muestra real del dataset → HTTP 200
-5. Derriba el stack (`docker compose down -v`)
+1. Descarga el artefacto `model-{sha}` subido por `ct.yml` (si existe en el mismo run)
+2. Si el artefacto no está disponible (trigger directo via `on: release`), entrena un modelo bootstrap con `file:./mlruns`
+3. Levanta stack efímero: `mlflow + otel-collector + api` con la imagen recién publicada
+4. Espera readiness de la API (max 180 s, sondeo cada 5 s)
+5. Valida `GET /health` → 200
+6. Valida `POST /infer/` con muestra real del dataset → HTTP 200
+7. Derriba el stack (`docker compose down -v`)
 
 **Permisos:** `contents: read` + `packages: write`
 
@@ -118,33 +122,17 @@ gh api /user/packages/container/PipelineModeling%2Fapi/versions \
 
 ---
 
-## Runner Local Automatizado
+## Runner local (solo desarrollo en Windows)
 
-`manage.py start` y `manage.py stop` gestionan el ciclo de vida del runner de forma automática.
+Los tres workflows (`ci.yml`, `ct.yml`, `cd.yml`) usan runners `ubuntu-latest` de GitHub. El runner local de Windows es opcional y sirve únicamente para development local avanzado.
 
-### Arranque automatico
+`manage.py start` lanza el runner automáticamente si detecta `%ACTIONS_RUNNER_DIR%\run.cmd` (por defecto `C:\actions-runner`). En Linux/macOS la llamada es silenciosa.
 
-`python manage.py start` ejecuta `_start_actions_runner()` tras levantar Docker Compose. La función:
-
-1. Verifica que `C:\actions-runner\run.cmd` existe (no hace nada en hosts no Windows o sin runner instalado).
-2. Comprueba si `Runner.Listener.exe` ya está en ejecución — si es así, lo omite sin abrir una segunda instancia.
-3. Lanza `Start-Process pwsh -Verb RunAs` con una ventana PowerShell elevada nueva que ejecuta `.\run.cmd; pause`.
-4. El usuario acepta el prompt UAC una sola vez por sesión de Windows.
-
-El `pause` al final mantiene la ventana abierta tras la parada del runner, permitiendo leer el motivo del cierre.
-
-### Parada automatica
-
-`python manage.py stop` ejecuta `_stop_actions_runner()` antes de bajar Docker Compose. Usa `taskkill /F /IM Runner.Listener.exe` y `taskkill /F /IM Runner.Worker.exe`. Si `taskkill` falla por permisos (proceso elevado), emite una advertencia sin bloquear la bajada del stack.
-
-### Comandos manuales (fallback)
-
-Si la automatización falla o el runner ya estaba encendido manualmente:
+Para sobreescribir la ruta del runner:
 
 ```powershell
-# Abrir PowerShell como Administrador
-Set-Location C:\actions-runner
-.\run.cmd
+$env:ACTIONS_RUNNER_DIR = "D:\mis-runners\pipeline"
+python manage.py start
 ```
 
 ### Disparar entrenamiento continuo
@@ -156,89 +144,42 @@ gh run watch --repo VSXR/PipelineModeling
 
 ---
 
-## Self-hosted runner (requerido por ct.yml)
-
-`ct.yml` ejecuta en el runner local (`runs-on: self-hosted`) porque MLflow está en `localhost:5000`. `ci.yml` y `cd.yml` usan runners GitHub-hosted (`ubuntu-latest`) y no requieren runner local.
-
-### Instalación (ya realizada)
-
-El runner está instalado en `C:\actions-runner` registrado como `pipeline-local` en el repositorio. Si necesitas reinstalarlo:
-
-```powershell
-# 1. Crear directorio y descargar
-New-Item -ItemType Directory -Force -Path C:\actions-runner | Out-Null
-Set-Location C:\actions-runner
-Invoke-WebRequest -Uri https://github.com/actions/runner/releases/download/v2.334.0/actions-runner-win-x64-2.334.0.zip -OutFile actions-runner-win-x64-2.334.0.zip
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-[System.IO.Compression.ZipFile]::ExtractToDirectory("$PWD\actions-runner-win-x64-2.334.0.zip", "$PWD")
-
-# 2. Configurar (el token caduca; generar uno nuevo en Settings → Actions → Runners → New runner)
-.\config.cmd --url https://github.com/VSXR/PipelineModeling --token <TOKEN>
-# Pulsar Enter en todas las preguntas; responder N a "run as service"
-```
-
-### Encender el runner
-
-Abrir PowerShell como Administrador y ejecutar:
-
-```powershell
-Set-Location C:\actions-runner
-.\run.cmd
-```
-
-El runner esta listo cuando aparece:
-
-```
-Connected to GitHub
-Listening for Jobs
-```
-
-Verificar estado desde la terminal del proyecto:
-
-```powershell
-gh api repos/VSXR/PipelineModeling/actions/runners --jq ".runners[] | {name, status, busy}"
-```
-
-El campo `status` debe ser `online` y `busy` debe ser `false` cuando esta libre.
-
-### Apagar el runner
-
-Pulsar `Ctrl+C` en la ventana donde corre `.\run.cmd`. El runner pasa a estado `offline` en GitHub y los jobs quedan en cola hasta que vuelva a estar activo.
-
-### Secuencia de uso habitual
-
-```
-1. Encender el stack + runner:  python manage.py start   (runner se lanza automáticamente con UAC)
-2. Disparar CT:                 gh workflow run ct.yml --repo VSXR/PipelineModeling --ref master
-3. Monitorizar:                 gh run watch --repo VSXR/PipelineModeling
-4. Apagar el stack + runner:    python manage.py stop    (runner se termina antes de bajar Docker)
-```
-
-El runner debe estar activo durante toda la ejecucion de `ct.yml`. `cd.yml` corre en runners GitHub-hosted y no necesita que el runner local este activo.
-
----
-
 ## Configuración inicial en GitHub
 
-### 1. Secretos de repositorio
+### 1. Secretos de repositorio (opcionales)
 
-**Settings → Secrets and variables → Actions:**
+Sin secretos configurados el pipeline funciona completo con tracking local y la imagen se publica en el GHCR del propio repositorio.
+
+**Settings → Secrets and variables → Actions** (solo si se quiere usar un servidor MLflow externo):
 
 ```
-MLFLOW_TRACKING_URI        →  https://mlflow.example.com
-MLFLOW_TRACKING_USERNAME   →  mlflow_user
-MLFLOW_TRACKING_PASSWORD   →  ***
+MLFLOW_TRACKING_URI        →  https://mlflow.example.com   (default: file:./mlruns)
+MLFLOW_TRACKING_USERNAME   →  mlflow_user                  (default: vacío)
+MLFLOW_TRACKING_PASSWORD   →  ***                          (default: vacío)
 ```
 
 `GITHUB_TOKEN` es automático.
 
 ### 2. GitHub Packages (GHCR)
 
-La imagen se publica en `ghcr.io/{owner}/{repo}/api`. Para repositorios privados, verificar que el token tiene scope `write:packages`.
+La imagen se publica en `ghcr.io/{owner}/{repo}/api` usando `${{ github.repository }}`, por lo que en un fork se publica automáticamente en el GHCR del fork.
+
+Para forks: activar **Settings → Actions → General → Workflow permissions → Read and write** para que `GITHUB_TOKEN` pueda hacer push a GHCR.
 
 ### 3. Branch de producción
 
 Los workflows apuntan a `master`. Si se renombra, actualizar las referencias en los tres YAML.
+
+### 4. Override de endpoints en docker-compose
+
+Para apuntar a servicios externos en local, basta con editar `.env`:
+
+```dotenv
+MLFLOW_TRACKING_URI=https://mi-mlflow.ejemplo.com
+OTEL_EXPORTER_OTLP_ENDPOINT=https://mi-otel.ejemplo.com:4317
+```
+
+`docker-compose.yml` lee estas variables con defaults incorporados; no requiere editar el YAML.
 
 ---
 

@@ -11,7 +11,7 @@
 
 Docker ejecuta MLflow (registro de modelos), el OTel Collector (telemetría), Prometheus (scrape) y Grafana (dashboards). La API, el frontend y el seeder corren en local con `.venv`.
 
-Para ejecutar el pipeline de entrenamiento continuo (`ct.yml`) se necesita además el runner local activo. Ver [docs/cicd.md](cicd.md) — sección "Self-hosted runner".
+El pipeline de entrenamiento continuo (`ct.yml`) corre en runners `ubuntu-latest` de GitHub; no requiere runner local ni infraestructura propia.
 
 ---
 
@@ -125,14 +125,16 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 
 ## Variables de entorno para CI/CD (GitHub Actions)
 
-Definir en Settings → Secrets and variables → Actions del repositorio:
+Todos los secretos son opcionales. Sin ellos el pipeline funciona completo con tracking local (`file:./mlruns`).
 
-| Secret | Descripción |
-|---|---|
-| `MLFLOW_TRACKING_URI` | `http://localhost:5000` para runner local; URL pública para runner hosted |
-| `MLFLOW_TRACKING_USERNAME` | Usuario de autenticación básica del servidor MLflow |
-| `MLFLOW_TRACKING_PASSWORD` | Contraseña de autenticación básica del servidor MLflow |
+| Secret | Por defecto | Descripción |
+|---|---|---|
+| `MLFLOW_TRACKING_URI` | `file:./mlruns` | URL de un servidor MLflow externo; omitir para usar tracking local en el runner |
+| `MLFLOW_TRACKING_USERNAME` | _(vacío)_ | Usuario de autenticación básica del servidor MLflow |
+| `MLFLOW_TRACKING_PASSWORD` | _(vacío)_ | Contraseña de autenticación básica del servidor MLflow |
 
-`GITHUB_TOKEN` es automático (no requiere configuración manual). `ct.yml` lo usa para crear tags y releases; `cd.yml` para push a GHCR.
+`GITHUB_TOKEN` es automático. `ct.yml` lo usa para crear tags y releases; `cd.yml` para push a GHCR.
 
-Ver [docs/cicd.md](cicd.md) para el detalle completo de secretos, permisos y el runner local.
+Para forks: activar **Settings → Actions → General → Workflow permissions → Read and write**.
+
+Ver [docs/cicd.md](cicd.md) para el detalle completo.

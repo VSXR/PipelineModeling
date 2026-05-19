@@ -43,7 +43,7 @@ def _save_local_artifacts(metrics: dict[str, float], clf) -> None:
 
 
 def main() -> None:
-    tracking_uri = os.environ["MLFLOW_TRACKING_URI"]
+    tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "file:./mlruns")
     model_name   = os.getenv("MLFLOW_MODEL_NAME", "pipeline-model")
     experiment   = os.getenv("MLFLOW_EXPERIMENT", "pipeline-breast-cancer")
 

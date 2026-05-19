@@ -20,10 +20,6 @@ env:
   ENVIRONMENT: ci
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
-defaults:
-  run:
-    shell: pwsh -NoProfile -NonInteractive {0}
-
 jobs:
   ci:
     name: CI Gate
@@ -32,7 +28,7 @@ jobs:
   train:
     name: Train · Validate · Promote
     needs: ci
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
       promoted:  ${{ steps.train.outputs.promoted }}
@@ -45,9 +41,9 @@ jobs:
       roc_auc:   ${{ steps.train.outputs.roc_auc }}
 
     env:
-      MLFLOW_TRACKING_URI:      ${{ secrets.MLFLOW_TRACKING_URI }}
-      MLFLOW_TRACKING_USERNAME: ${{ secrets.MLFLOW_TRACKING_USERNAME }}
-      MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
+      MLFLOW_TRACKING_URI:      ${{ secrets.MLFLOW_TRACKING_URI || 'file:./mlruns' }}
+      MLFLOW_TRACKING_USERNAME: ${{ secrets.MLFLOW_TRACKING_USERNAME || '' }}
+      MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD || '' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -65,24 +61,25 @@ jobs:
         id: train
         working-directory: model
         run: |
-          python train.py | Tee-Object -Variable output
-          $version  = ($output | Where-Object { $_ -match '^version='  } | Select-Object -First 1) -replace '^version=(\S+).*',  '$1'
-          $promoted = ($output | Where-Object { $_ -match '^promoted=' } | Select-Object -First 1) -replace '^promoted=(\S+).*', '$1'
-          "version=$version"   >> $env:GITHUB_OUTPUT
-          "promoted=$promoted" >> $env:GITHUB_OUTPUT
-          foreach ($metric in @('accuracy','f1','precision','recall','roc_auc')) {
-            $val = ($output | Where-Object { $_ -match "^metric\.$metric=" } | Select-Object -First 1) -replace "^metric\.$metric=(.*)", '$1'
-            "$metric=$val" >> $env:GITHUB_OUTPUT
-          }
+          python train.py | tee /tmp/train_output.txt
+          [ "${PIPESTATUS[0]}" -eq 0 ] || exit 1
+          output=$(cat /tmp/train_output.txt)
+          version=$(echo "$output"  | grep '^version='  | head -1 | sed 's/^version=\([^ ]*\).*/\1/')
+          promoted=$(echo "$output" | grep '^promoted=' | head -1 | sed 's/^promoted=\([^ ]*\).*/\1/')
+          echo "version=$version"   >> "$GITHUB_OUTPUT"
+          echo "promoted=$promoted" >> "$GITHUB_OUTPUT"
+          for metric in accuracy f1 precision recall roc_auc; do
+            val=$(echo "$output" | grep "^metric\.${metric}=" | head -1 | sed "s/^metric\.${metric}=//")
+            echo "${metric}=${val}" >> "$GITHUB_OUTPUT"
+          done
 
       - name: Compute next semantic tag
         id: semver
         run: |
-          $latest = git tag --sort=-version:refname | Where-Object { $_ -match '^v\d' } | Select-Object -First 1
-          if (-not $latest) { $latest = "v0.0.0" }
-          $parts = $latest.TrimStart('v').Split('.')
-          $major = $parts[0]; $minor = $parts[1]; $patch = [int]$parts[2]
-          "tag=v${major}.${minor}.$($patch + 1)" >> $env:GITHUB_OUTPUT
+          latest=$(git tag --sort=-version:refname | grep '^v[0-9]' | head -1)
+          [ -z "$latest" ] && latest="v0.0.0"
+          IFS='.' read -r major minor patch <<< "${latest#v}"
+          echo "tag=v${major}.${minor}.$((patch + 1))" >> "$GITHUB_OUTPUT"
 
       - name: Upload model artifacts
         uses: actions/upload-artifact@v4
@@ -106,7 +103,7 @@ jobs:
     name: Tag · Release
     needs: [train, deploy]
     if: always() && needs.train.outputs.promoted == 'true' && needs.deploy.result == 'success'
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     permissions:
       contents: write
 
@@ -129,19 +126,20 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $notesFile = "$env:RUNNER_TEMP\release-notes.md"
-          @(
-            "## Metrics",
-            "",
-            "| Metric    | Value |",
-            "|-----------|-------|",
-            "| Accuracy  | ${{ needs.train.outputs.accuracy }} |",
-            "| F1        | ${{ needs.train.outputs.f1 }} |",
-            "| Precision | ${{ needs.train.outputs.precision }} |",
-            "| Recall    | ${{ needs.train.outputs.recall }} |",
-            "| ROC-AUC   | ${{ needs.train.outputs.roc_auc }} |",
-            "",
-            "MLflow version: ${{ needs.train.outputs.version }}",
-            "Commit: ${{ github.sha }}"
-          ) | Set-Content $notesFile -Encoding UTF8
-          gh release create "${{ needs.train.outputs.tag }}" --title "Model ${{ needs.train.outputs.tag }}" --notes-file $notesFile
+          {
+            echo "## Metrics"
+            echo ""
+            echo "| Metric    | Value |"
+            echo "|-----------|-------|"
+            echo "| Accuracy  | ${{ needs.train.outputs.accuracy }} |"
+            echo "| F1        | ${{ needs.train.outputs.f1 }} |"
+            echo "| Precision | ${{ needs.train.outputs.precision }} |"
+            echo "| Recall    | ${{ needs.train.outputs.recall }} |"
+            echo "| ROC-AUC   | ${{ needs.train.outputs.roc_auc }} |"
+            echo ""
+            echo "MLflow version: ${{ needs.train.outputs.version }}"
+            echo "Commit: ${{ github.sha }}"
+          } > "$RUNNER_TEMP/release-notes.md"
+          gh release create "${{ needs.train.outputs.tag }}" \
+            --title "Model ${{ needs.train.outputs.tag }}" \
+            --notes-file "$RUNNER_TEMP/release-notes.md"

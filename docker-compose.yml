@@ -111,9 +111,9 @@ services:
     env_file: .env
     environment:
       MODEL_PATH:                    /app/model/weights/model.pkl
-      MLFLOW_TRACKING_URI:           http://mlflow:5000
+      MLFLOW_TRACKING_URI:           ${MLFLOW_TRACKING_URI:-http://mlflow:5000}
       MLFLOW_MODEL_NAME:             pipeline-model
-      OTEL_EXPORTER_OTLP_ENDPOINT:   http://otel-collector:4317
+      OTEL_EXPORTER_OTLP_ENDPOINT:   ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
       OTEL_SERVICE_NAME:             pipeline-api
       ENABLE_DEBUG_ENDPOINTS:        ${ENABLE_DEBUG_ENDPOINTS:-false}
     volumes:

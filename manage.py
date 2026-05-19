@@ -30,8 +30,8 @@ VENV        = ROOT / ".venv"
 IS_WIN      = platform.system() == "Windows"
 _BIN        = VENV / ("Scripts" if IS_WIN else "bin")
 _EXE        = ".exe" if IS_WIN else ""
-RUNNER_DIR  = Path(r"C:\actions-runner")
-RUNNER_CMD  = RUNNER_DIR / "run.cmd"
+RUNNER_DIR = Path(os.environ.get("ACTIONS_RUNNER_DIR", r"C:\actions-runner"))
+RUNNER_CMD = RUNNER_DIR / "run.cmd"
 
 PYTHON = _BIN / f"python{_EXE}"
 PIP = _BIN / f"pip{_EXE}"

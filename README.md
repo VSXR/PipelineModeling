@@ -96,18 +96,16 @@ python manage.py simulate --scenario chaos                 Inyectar errores en i
 python manage.py simulate --scenario all                   Todos los escenarios
 ```
 
-### Runner de GitHub Actions (Windows)
+### Disparar el pipeline de entrenamiento
 
-`manage.py start` lanza automáticamente el runner local en una ventana PowerShell elevada. El prompt UAC aparece una sola vez por sesión. Si el runner ya está en ejecución, la llamada es silenciosa.
-
-`manage.py stop` termina `Runner.Listener.exe` y `Runner.Worker.exe` antes de bajar Docker Compose.
-
-El runner necesita estar activo para que el workflow `ct.yml` pueda alcanzar MLflow en `localhost:5000`. Para disparar el pipeline de entrenamiento manualmente:
+Los tres workflows (`ci.yml`, `ct.yml`, `cd.yml`) corren en runners `ubuntu-latest` de GitHub; no requieren runner local. Para ejecutar el pipeline de entrenamiento manualmente:
 
 ```bash
 gh workflow run ct.yml --repo VSXR/PipelineModeling --ref master
 gh run watch --repo VSXR/PipelineModeling
 ```
+
+`manage.py start` lanza opcionalmente el runner local de Windows si `C:\actions-runner\run.cmd` existe (o la ruta configurada en `ACTIONS_RUNNER_DIR`). Es silencioso en Linux/macOS y solo relevante para desarrollo local avanzado.
 
 ### Tests E2E del frontend
 

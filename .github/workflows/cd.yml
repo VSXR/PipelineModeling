@@ -101,6 +101,20 @@ jobs:
       - name: Create .env for CI
         run: touch .env
 
+      - name: Download model artifact
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: model-${{ github.sha }}
+          path: model/weights/
+
+      - name: Bootstrap model if artifact unavailable
+        run: |
+          if [ ! -f model/weights/model.pkl ]; then
+            pip install -r model/requirements.txt
+            MLFLOW_TRACKING_URI=file:./mlruns python model/train.py
+          fi
+
       - name: Start ephemeral stack
         env:
           API_IMAGE: ${{ needs.build-push.outputs.image_ref }}

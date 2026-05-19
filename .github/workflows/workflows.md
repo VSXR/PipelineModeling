@@ -1,75 +1,51 @@
-# Documentación de GitHub Actions Workflows
+# GitHub Actions Workflows
 
-Este directorio contiene las definiciones de los flujos de trabajo automatizados para la Integración Continua (CI), el Entrenamiento Continuo (CT) y el Despliegue Continuo (CD) del proyecto PipelineModeling.
-
-## Estructura de la Automatización
-
-El ciclo de vida del software está dividido en tres etapas principales que aseguran la calidad del código, la precisión del modelo y la estabilidad del despliegue.
+Tres workflows cubren el ciclo de vida completo. Todos corren en runners `ubuntu-latest` de GitHub; no se requiere infraestructura propia.
 
 ---
 
-## 1. Integración Continua (CI) - `ci.yml`
+## `ci.yml` — Integración Continua
 
-**Propósito:** Validar la integridad del código fuente de la API mediante la ejecución de pruebas unitarias automáticas en cada cambio.
+**Trigger:** push a `master`, PR hacia `master`.
 
-- **Activación (Triggers):**
-  - Cada `push` en las ramas `master` o `develop`.
-  - Cada `pull_request` dirigido a la rama `master`.
-- **Trabajos (Jobs):**
-  - `unit-tests`: Configura un entorno Python 3.11, instala las dependencias de la API y los tests, y ejecuta `pytest`. Se omiten los tests de integración de infraestructura para mantener la rapidez del flujo.
-- **Cache:** Utiliza acciones de cacheo nativas de GitHub para acelerar la instalación de dependencias de `pip`.
+**Pasos:** lint con `ruff` + `pytest` unitarios (sin API levantada).
+
+**Falla si:** el linter reporta errores o algún test unitario rompe.
 
 ---
 
-## 2. Entrenamiento y Validación (CT) - `retrain.yml`
+## `ct.yml` — Entrenamiento Continuo
 
-**Propósito:** Automatizar el entrenamiento del modelo de Machine Learning, validar sus métricas de rendimiento y gestionar su versionado mediante tags de Git.
+**Trigger:** push a `master`, `workflow_dispatch`.
 
-- **Activación (Triggers):**
-  - Cambios en los archivos de entrenamiento (`model/train.py`, `model/requirements.txt`) en la rama `master`.
-  - Programación cron: Todos los lunes a las 02:00 AM UTC.
-  - Ejecución manual (`workflow_dispatch`) con parámetros opcionales para umbrales de métricas.
-- **Entorno:** - `MLFLOW_TRACKING_URI`: Se conecta al servidor de MLflow (vía secretos) o utiliza almacenamiento local como respaldo.
-- **Etapas clave:**
-  1. **Entrenamiento:** Ejecuta el script de entrenamiento del modelo.
-  2. **Validación (Quality Gate):** Comprueba que el `accuracy` y `f1-score` sean mayores a 0.80 (o los valores definidos). Si fallan, el pipeline se detiene.
-  3. **Artefactos:** Sube los pesos del modelo (`model.pkl`) y los reportes de métricas como artefactos de la ejecución.
-  4. **Tagging:** Si el entrenamiento es exitoso en `master`, genera un nuevo tag automático con formato `vYYYYMMDDHHMMSS`.
-  5. **Release:** Crea una GitHub Release con el resumen de métricas del nuevo modelo.
+**Secretos (todos opcionales):**
 
----
+| Secret | Default | Descripción |
+|---|---|---|
+| `MLFLOW_TRACKING_URI` | `file:./mlruns` | Servidor MLflow externo; omitir para tracking local |
+| `MLFLOW_TRACKING_USERNAME` | _(vacío)_ | Auth básica MLflow |
+| `MLFLOW_TRACKING_PASSWORD` | _(vacío)_ | Auth básica MLflow |
 
-## 3. Construcción y Despliegue (CD) - `deploy.yml`
+**Jobs:**
 
-**Propósito:** Empaquetar la aplicación en una imagen de contenedor Docker, publicarla en GitHub Container Registry (GHCR) y realizar pruebas de humo (smoke tests) para validar el despliegue.
+- `ci` — gate que reutiliza `ci.yml`
+- `train` — entrena con `ModelTrainer`, promueve con `ModelPromoter`, sube artefacto `model-{sha}`, calcula semver
+- `deploy` — encadena `cd.yml` via `workflow_call` si `promoted=true`
+- `release` — crea tag Git y GitHub Release con tabla de métricas
 
-- **Activación (Triggers):**
-  - Creación de cualquier tag que comience por `v*` (disparado automáticamente por `retrain.yml`).
-  - Ejecución manual para despliegues rápidos.
-- **Trabajos (Jobs):**
-  - **build-push:** - Extrae metadatos y genera etiquetas (SemVer y SHA).
-    - Compila la imagen Docker de la API.
-    - Publica la imagen en `ghcr.io`.
-  - **smoke-test:**
-    - Levanta temporalmente el stack completo (`mlflow`, `otel-collector` y la nueva imagen de la `api`) usando Docker Compose.
-    - Espera a que el endpoint `/health` de la API responda exitosamente.
-    - Realiza una petición de inferencia de prueba para confirmar que el modelo se carga y responde correctamente (HTTP 200).
-    - Destruye el entorno temporal de prueba.
+**Falla si:** las métricas no superan los umbrales de promoción (`accuracy ≥ 0.85`, `f1 ≥ 0.82`, `roc_auc ≥ 0.90`).
 
 ---
 
-## Seguridad y Permisos
+## `cd.yml` — Build y Publicación
 
-- **GITHUB_TOKEN:** Se utiliza para autenticarse contra GHCR y para crear releases y tags.
-- **Secretos requeridos:** - `MLFLOW_TRACKING_URI`: URL del servidor MLflow remoto.
-- **Paquetes:** Las imágenes se almacenan en GitHub Packages bajo el nombre del repositorio.
+**Trigger:** `workflow_call` desde `ct.yml`, o `on: release` publicado.
 
----
+**Jobs:**
 
-## Flujo de Trabajo Típico
+- `build-push` — construye `services/api/Dockerfile` (stage `runtime`), publica en `ghcr.io/{owner}/{repo}/api` con tags semver + `latest`
+- `smoke-test` — descarga el artefacto `model-{sha}` del mismo run (o entrena bootstrap si no existe), levanta stack efímero `mlflow + otel-collector + api`, valida `/health` e `/infer/`, derriba el stack
 
-1. Push a `develop` -> Activación de `ci.yml`.
-2. Merge a `master` -> Activación de `retrain.yml`.
-3. Éxito en entrenamiento -> Creación del tag `vYYYYMMDDHHMMSS`.
-4. Creación del tag -> Activación de `deploy.yml`.
-5. Éxito en tests de humo -> Imagen lista en registro OCI para entornos de producción.
+**Permisos:** `contents: read` + `packages: write`.
+
+**Portabilidad en forks:** activar `Settings → Actions → General → Workflow permissions → Read and write` para que `GITHUB_TOKEN` pueda hacer push a GHCR.
