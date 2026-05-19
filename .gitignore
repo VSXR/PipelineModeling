@@ -63,6 +63,7 @@ mlartifacts/
 # Modelo — gestionado por MLflow, no por Git
 model/weights/
 !model/weights/.gitkeep
+model/metrics.json
 
 # Estado en tiempo de ejecución
 .pids.json
@@ -78,4 +79,3 @@ test-results/
 # act — secretos locales (NUNCA versionar)
 .secrets
 .secrets.*
-!.secrets.template
