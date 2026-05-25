@@ -166,43 +166,6 @@ $env:DRIFT_MAGNITUDE     = "3.0"
 
 En unos segundos, `pipeline_data_drift_score` aparece en Prometheus con una etiqueta `feature` por cada una de las 30 dimensiones (por ejemplo, `radius_mean`, `concavity_worst`).
 
----
-
-## Flujo completo entre servicios
-
-```
-Seeder
-  └─► POST /infer/ ──────────────────────────────────────────────────►  OTel Counter: pipeline.inference.requests
-  └─► POST /train/ ──► partial_fit ──► model.pkl (disco) ────────────►  OTel Counter: pipeline.training.samples
-                                                                         OTel Counter: pipeline.training.requests
-Frontend / Operador
-  └─► POST /version/register ──► joblib.load(model.pkl)
-                               ──► mlflow.sklearn.log_model() ────────►  MLflow Registry: nueva versión N
-  └─► POST /version/switch {"model_ref": "N"}
-                               ──► mlflow.sklearn.load_model() ────────►  OTel Histogram: pipeline.model.load_duration_seconds
-                                                                          OTel Counter:   pipeline.version.switches
-
-OTel Collector :4317 (gRPC) ──► Prometheus exporter :9464
-Prometheus :9090 ──► scrape otel-collector:9464 (cada 15s)
-Grafana :3000 ──► query Prometheus ──► dashboards en vivo
-```
-
-**Secuencia de arranque recomendada:**
-
-1. `python manage.py setup` — entrena el modelo bootstrap, lo registra en MLflow como versión 1, guarda `model/weights/model.pkl`
-2. `python manage.py start` — levanta el stack completo (`docker compose up --build -d`)
-3. El seeder genera ~20 req/s de inferencia y un batch de training cada 30s automáticamente
-4. Verificar: `http://localhost:9090/graph` → `pipeline_inference_requests_total` debe aparecer en <30s
-5. Para registrar un modelo entrenado incrementalmente: Frontend → Versioning → **Register to MLflow**
-6. Para hacer hot-swap: Frontend → Versioning → Switch version → número de versión devuelto en paso 5
-
-**Nuevo endpoint `POST /version/register`:**
-
-Registra el modelo actualmente en memoria (cargado desde `model.pkl`) en el MLflow Model Registry como una nueva versión. Permite un ciclo completo sin reiniciar el servicio:
-
-```
-train (partial_fit, mejora el modelo) → register (sube a MLflow) → switch (carga la nueva versión)
-```
 
 ---
 
@@ -229,12 +192,3 @@ Los boundaries se aplican pasando `views=_HISTOGRAM_VIEWS` al `MeterProvider`. C
 
 ---
 
-## Verificar telemetría sin SaaS
-
-El exporter `logging` del Collector siempre está activo y vuelca JSON estructurado a stdout:
-
-```bash
-docker compose logs otel-collector --follow
-```
-
-Cada línea de log es un `ResourceMetrics` o `ResourceSpans` completo, ingestable sin agente por CloudWatch Log Insights, GCP Logging y Datadog Log Management.

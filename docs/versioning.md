@@ -30,27 +30,7 @@ result = trainer.train(git_commit="04429b4", git_ref="develop")
 | Tags | `git.commit_hash`, `git.ref`, `environment`, `pipeline.version` |
 | Artifact | Pipeline `StandardScaler + SGDClassifier` serializado |
 
-El modelo queda registrado con alias `Staging` inmediatamente tras el entrenamiento.
-
-#### Enriquecimiento de metadatos en el Model Registry
-
-Tras asignar el alias `Staging`, `_register()` escribe una descripción profesional y cuatro tags a nivel de versión:
-
-| Metadato | Método MLflow | Contenido |
-|---|---|---|
-| Descripción | `update_model_version(description=...)` | Dataset, run ID, timestamp de registro y resumen de métricas |
-| `run_id` | `set_model_version_tag` | UUID del run de MLflow asociado |
-| `registered_at` | `set_model_version_tag` | Timestamp ISO UTC del registro |
-| `model_name` | `set_model_version_tag` | Nombre del modelo en el registry |
-| `alias` | `set_model_version_tag` | Siempre `Staging` en el registro inicial |
-
-Ejemplo de descripción generada:
-```
-SGDClassifier · StandardScaler pipeline trained on Breast Cancer Wisconsin (569 samples, 30 features).
-Run ID: ef58985930e6...
-Registered: 2026-05-18T10:00:00.000000+00:00
-Metrics: accuracy=0.9737 | f1=0.9790 | precision=0.9859 | recall=0.9722 | roc_auc=0.9947
-```
+El modelo queda registrado con alias `Staging` con descripción, `run_id`, `registered_at` y `model_name` como tags de versión.
 
 ### `ModelPromoter` (`model/promote.py`)
 
@@ -72,19 +52,7 @@ La operación es idempotente: `set_registered_model_alias` sobrescribe el alias 
 
 ## Flujo automatizado (GitHub Actions)
 
-Un push a `model/**` en `master` dispara el pipeline completo:
-
-```mermaid
-flowchart TD
-    A["git push → model/**"] --> B["ct.yml\npython model/train.py"]
-    B --> C["ModelTrainer.train()\nregistra tags git.commit_hash + git.ref"]
-    C --> D["Model Registry\nalias Staging → vN"]
-    D --> E["ModelPromoter.promote()\naccuracy ≥ 0.85 · f1 ≥ 0.82 · roc_auc ≥ 0.90"]
-    E -->|no supera umbrales| STOP["ct.yml falla\nNo se crea tag ni Release"]
-    E -->|supera umbrales| F["alias Production → vN"]
-    F --> G["git tag vX.Y.Z\nGitHub Release con métricas"]
-    G --> H["cd.yml\nbuild → push GHCR → smoke test"]
-```
+Push a `model/**` en `master` → `ct.yml` → `ModelTrainer.train()` → alias `Staging` → `ModelPromoter.promote()` → si supera umbrales: alias `Production` + tag semver + GitHub Release → `cd.yml` (build + push GHCR + smoke test). Ver [cicd.md](cicd.md) para detalle completo.
 
 ---
 
@@ -207,16 +175,3 @@ El modelo en memoria se preserva si MLflow es inalcanzable durante el switch.
 | Número de versión válido | 200 | Hot-swap completado |
 | Alias válido (`Production`, `Staging`) | 200 | MLflow resuelve alias a versión concreta |
 
----
-
-## Consultar versiones publicadas
-
-```powershell
-# Tags Git semánticos (creados automáticamente por ct.yml)
-git tag -l "v*"
-git ls-remote --tags origin
-
-# GitHub Releases (incluyen tabla de métricas)
-gh release list
-gh release view v0.0.1
-```

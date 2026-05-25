@@ -198,29 +198,3 @@ curl -X POST http://localhost:8000/version/switch \
   -d '{"model_ref": "2"}'
 ```
 
----
-
-## Extender el pipeline de despliegue
-
-Añadir un job `deploy-production` al final de `cd.yml`:
-
-```yaml
-deploy-production:
-  name: Deploy to Production
-  needs: [build-push, smoke-test]
-  runs-on: ubuntu-latest
-  environment: production        # requiere aprobación manual en GitHub
-  steps:
-    - name: Rollout
-      run: |
-        # Kubernetes:
-        kubectl set image deployment/pipeline-api \
-          api=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-push.outputs.image_digest }}
-        # ECS:
-        aws ecs update-service --cluster pipeline --service api --force-new-deployment
-        # Cloud Run:
-        gcloud run deploy pipeline-api \
-          --image ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-push.outputs.image_digest }}
-```
-
-Activar el entorno `production` en **Settings → Environments** para requerir aprobación manual.

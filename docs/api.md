@@ -3,34 +3,7 @@
 Base URL: `http://localhost:8000`  
 Documentación interactiva: http://localhost:8000/docs
 
-```mermaid
-graph LR
-    subgraph endpoints["Endpoints"]
-        H["/health"]
-        I["/infer/"]
-        T["/train/"]
-        VC["/version/current"]
-        VS["/version/switch"]
-        VL["/version/list"]
-        VR["/version/register"]
-    end
-
-    MM["ModelManager\nsingleton"]
-    DT["DriftTracker\nsingleton"]
-    MLF["MLflow\nModel Registry"]
-
-    I -->|predict| MM
-    I -->|update_single| DT
-    T -->|partial_fit| MM
-    T -->|update_batch| DT
-    VS -->|MLflow pull + reload| MM
-    VR -->|register_to_mlflow| MLF
-    VL -->|search_model_versions| MLF
-    H --> MM
-    VC --> MM
-```
-
-> El dataset utilizado es **Breast Cancer Wisconsin** (30 features). Todos los ejemplos usan vectores reales de este dataset. Ver [dataset.md](dataset.md).
+Endpoints: `/health` · `/infer/` · `/train/` · `/version/current` · `/version/switch` · `/version/list` · `/version/register`
 
 ---
 

@@ -211,10 +211,6 @@ curl -u admin:admin http://localhost:3000/api/datasources
 
 ## Añadir nuevos tests
 
-1. Crea `tests/test_<funcionalidad>.py`
-2. Usa el fixture `client: httpx.Client` para las llamadas HTTP
-3. Para tests parametrizados: `@pytest.mark.parametrize`
-
 ```python
 from conftest import FEATURES_30
 
@@ -223,12 +219,4 @@ def test_infer_returns_binary(client):
     assert body["prediction"] in (0, 1)
 ```
 
----
-
-## Instalar dependencias de test
-
-```powershell
-.venv\Scripts\pip install -r tests/requirements.txt
-```
-
-Dependencias: `pytest==8.2.0`, `httpx==0.27.0`.
+Usar fixture `client: httpx.Client` para llamadas HTTP. Dependencias de test: `pytest==8.2.0`, `httpx==0.27.0`.

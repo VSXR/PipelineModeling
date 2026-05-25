@@ -1,8 +1,6 @@
 # Arquitectura
 
-## Visión general
-
-PipelineModeling implementa un pipeline de ML continuo siguiendo CRISP-DM. La ejecución es híbrida: API, frontend y seeder corren en el host; MLflow, OTel Collector, Prometheus y Grafana viven en Docker Compose. La observabilidad sigue el patrón OTLP Push → Collector → Prometheus Pull → Grafana, y el versionado de artefactos se gestiona mediante MLflow Model Registry.
+Ejecución híbrida: API, frontend y seeder en `.venv`; MLflow, OTel Collector, Prometheus y Grafana en Docker Compose. Observabilidad: OTLP Push → Collector → Prometheus Pull → Grafana.
 
 ```mermaid
 graph TB
@@ -56,62 +54,23 @@ graph TB
 ```
 PipelineModeling/
 ├── manage.py                     # CLI unificado (setup · start · stop · status · test · simulate)
-├── docker-compose.yml            # Stack Docker completo
+├── docker-compose.yml
 ├── .env.example
-├── model/
-│   ├── trainer.py                # ModelTrainer: encapsula train + MLflow log + alias Staging
-│   ├── promote.py                # ModelPromoter: valida umbrales y asigna alias Production
-│   ├── train.py                  # Entry point: orquesta ModelTrainer + ModelPromoter
-│   ├── requirements.txt
-│   ├── metrics.json              # Artefacto local (accuracy, f1, precision, recall, roc_auc)
-│   └── weights/model.pkl         # SGDClassifier local (.gitignore); copia canónica en MLflow
+├── model/                        # ModelTrainer, ModelPromoter, train.py, metrics.json, weights/model.pkl
 ├── services/
 │   ├── api/
-│   │   ├── main.py               # App FastAPI + lifespan + FastAPIInstrumentor
-│   │   ├── core/
-│   │   │   ├── config.py         # Pydantic Settings (MODEL_PATH, MLFLOW_*)
-│   │   │   ├── predictor.py      # BasePredictor (ABC) + SKLearnPredictor
-│   │   │   ├── drift.py          # DriftTracker singleton (EMA, 30 features)
-│   │   │   ├── metrics.py        # PipelineMetrics facade sobre OTel SDK
-│   │   │   └── model_manager.py  # Singleton; asyncio locks; hot-swap desde MLflow
-│   │   ├── routers/
-│   │   │   ├── inference.py      # POST /infer/
-│   │   │   ├── training.py       # POST /train/
-│   │   │   ├── versioning.py     # GET /version/current · POST /version/switch · POST /version/register
-│   │   │   └── debug.py          # POST /debug/chaos
+│   │   ├── core/                 # config.py · predictor.py · drift.py · metrics.py · model_manager.py
+│   │   ├── routers/              # inference.py · training.py · versioning.py · debug.py
 │   │   └── schemas/
-│   │       ├── inference.py
-│   │       ├── training.py
-│   │       └── versioning.py
-│   ├── frontend/
-│   │   ├── app.py                # Punto de entrada Streamlit
-│   │   ├── runtime.py            # UI declarativa (4 tabs)
-│   │   ├── controller.py         # Orquestación de negocio
-│   │   ├── network.py            # Límite de red (async/sync bridge)
-│   │   └── domain.py             # Estado inmutable
-│   ├── seeder/seeder.py          # 3 corutinas async: infer, train, drift
-│   └── wrapper/client.py         # PipelineClient (async context manager)
+│   ├── frontend/                 # app.py · runtime.py · controller.py · network.py · domain.py
+│   ├── seeder/                   # seeder.py (3 corutinas: infer · train · drift)
+│   └── wrapper/                  # client.py (PipelineClient async)
 ├── monitoring/
 │   ├── otel-collector/otel-collector.yml
 │   ├── prometheus/prometheus.yml
-│   └── grafana/
-│       ├── provisioning/datasources/datasource.yml
-│       ├── provisioning/dashboards/dashboards.yml
-│       └── dashboards/pipeline-overview.json
-├── .github/workflows/
-│   ├── ci.yml                    # Lint (ruff) + tests unitarios
-│   ├── ct.yml                    # Entrenamiento continuo + promote + release
-│   └── cd.yml                    # Build imagen Docker + push GHCR + smoke test
-├── tests/
-│   ├── conftest.py
-│   ├── test_health.py
-│   ├── test_inference.py
-│   ├── test_training.py
-│   ├── test_versioning.py
-│   ├── test_metrics.py
-│   ├── test_flow.py
-│   ├── test_observability_stack.py
-│   └── test_otel_mlflow_migration.py
+│   └── grafana/                  # datasource, dashboards provisioning, pipeline-overview.json
+├── .github/workflows/            # ci.yml · ct.yml · cd.yml
+├── tests/                        # conftest + 8 módulos de test
 └── docs/
 ```
 
