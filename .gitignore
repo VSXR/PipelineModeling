@@ -15,7 +15,6 @@ venv/
 env/
 
 # Variables de entorno
-.env
 .env.local
 .env.*.local
 .venv_test
