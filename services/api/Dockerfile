@@ -53,3 +53,31 @@ CMD ["uvicorn", "main:app", \
      "--loop", "uvloop", \
      "--log-level", "info", \
      "--access-log"]
+
+# ══════════════════════════════════════════════════════════════════════
+#  Stage 3 — Standalone: self-contained image with pre-trained model
+#  Use this target for cloud deployment (Render, Railway, Fly.io).
+#  Trains model.pkl at build time; no volume mount or MLflow required.
+# ══════════════════════════════════════════════════════════════════════
+FROM runtime AS standalone
+
+USER root
+
+COPY model/ /tmp/model_src/
+
+RUN git -C /tmp/model_src init \
+    && git -C /tmp/model_src config user.email "ci@standalone" \
+    && git -C /tmp/model_src config user.name "CI" \
+    && git -C /tmp/model_src add . \
+    && git -C /tmp/model_src commit -m "standalone" --allow-empty \
+    && pip install --no-cache-dir -r /tmp/model_src/requirements.txt \
+    && cd /tmp/model_src \
+    && MLFLOW_TRACKING_URI=file:///tmp/mlruns \
+       MLFLOW_MODEL_NAME=pipeline-model \
+       GITHUB_REF_NAME=standalone \
+       python train.py \
+    && cp -r /tmp/model_src/weights/. /app/model/weights/ \
+    && chown -R appuser:appuser /app/model/weights \
+    && rm -rf /tmp/model_src /tmp/mlruns
+
+USER appuser
