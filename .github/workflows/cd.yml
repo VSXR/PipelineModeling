@@ -125,9 +125,12 @@ jobs:
               image: ${API_IMAGE}
               build: !reset null
               volumes: !reset []
+              environment:
+                OTEL_EXPORTER_OTLP_ENDPOINT: ""
+                MLFLOW_TRACKING_URI: "file:./mlruns"
           EOF
           docker compose -f docker-compose.yml -f docker-compose.ci.yml \
-            up -d mlflow otel-collector api
+            up -d mlflow api
           echo "Waiting for API to be ready (max 180s)..."
           for i in $(seq 1 36); do
             curl -sf http://localhost:8000/health > /dev/null 2>&1 && echo "API ready after $((i * 5))s" && break

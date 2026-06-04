@@ -1,0 +1,17 @@
+[run]
+source = services/api
+branch = true
+omit =
+    services/api/__init__.py
+    services/api/core/__init__.py
+    services/api/routers/__init__.py
+    services/api/schemas/__init__.py
+
+[report]
+show_missing = true
+fail_under = 80
+exclude_lines =
+    pragma: no cover
+    if TYPE_CHECKING:
+    raise NotImplementedError
+    @abstractmethod

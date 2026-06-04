@@ -38,5 +38,8 @@ jobs:
       - name: Lint
         run: ruff check model/ services/ tests/
 
-      - name: Unit tests
-        run: pytest tests/test_otel_mlflow_migration.py --tb=short -q
+      - name: Unit tests · Coverage
+        run: |
+          pytest tests/test_otel_mlflow_migration.py tests/test_unit_routers.py \
+            --cov --cov-branch --cov-report=term-missing \
+            --tb=short -q
